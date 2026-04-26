@@ -868,6 +868,37 @@
     .modal-yes.given-up {
       animation: modalYesGiveUp 0.5s ease;
     }
+    .modal-give-up {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px dashed var(--border);
+      text-align: center;
+    }
+    .modal-giveup-btn {
+      background: transparent;
+      border: 1px solid var(--border-strong);
+      color: var(--text-3);
+      padding: 7px 14px;
+      font-family: var(--font-ui);
+      font-size: 12.5px;
+      font-weight: 500;
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      box-shadow: none;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .modal-giveup-btn:hover:not(:disabled) {
+      background: var(--surface-soft);
+      color: var(--text-2);
+      border-color: var(--text-3);
+    }
+    .modal-giveup-btn:disabled {
+      opacity: 0.7;
+      cursor: default;
+      color: var(--success);
+      border-color: var(--success);
+      background: rgba(21, 128, 61, 0.06);
+    }
     @keyframes modalFadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -1834,23 +1865,29 @@
     }
 
     // Generic runaway-Yes confirmation modal.
-    // opts: { title, message, yesText, cancelText, onConfirm, maxEscapes }
-    //   maxEscapes (default Infinity): how many dodges before the Yes button stops moving and lets you click.
-    //   onConfirm: called when the user actually catches and clicks Yes. Omit for prank-only modals.
+    // opts: { title, message, yesText, cancelText, giveUpText, onConfirm }
+    //   The Yes button always dodges the cursor — the only way to catch it is to click the
+    //   give-up button, which freezes Yes in place. Cancel and give-up both close the modal
+    //   without confirming unless the user then clicks Yes.
     function openRunawayConfirm(opts) {
       const {
         title,
         message,
         yesText = 'Yes',
         cancelText = 'Cancel',
+        giveUpText,
         onConfirm,
-        maxEscapes = Infinity,
       } = opts;
 
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
       const box = document.createElement('div');
       box.className = 'modal-box';
+      const giveUpHTML = giveUpText
+        ? `<div class="modal-give-up">
+             <button class="modal-giveup-btn" type="button">${giveUpText}</button>
+           </div>`
+        : '';
       box.innerHTML = `
         <h3>${title}</h3>
         <p>${message}</p>
@@ -1858,17 +1895,19 @@
           <button class="modal-cancel" type="button">${cancelText}</button>
           <button class="modal-yes" type="button">${yesText}</button>
         </div>
+        ${giveUpHTML}
       `;
       overlay.appendChild(box);
       document.body.appendChild(overlay);
 
       const yes = box.querySelector('.modal-yes');
       const cancel = box.querySelector('.modal-cancel');
+      const giveUp = box.querySelector('.modal-giveup-btn');
 
-      let escapes = 0;
+      let givenUp = false;
 
       function dodge(mouseX, mouseY) {
-        if (escapes >= maxEscapes) return; // given up
+        if (givenUp) return;
         const r = yes.getBoundingClientRect();
         const cx = r.left + r.width / 2;
         const cy = r.top + r.height / 2;
@@ -1877,24 +1916,19 @@
         const dist = Math.hypot(dx, dy);
         if (dist > 100) return;
 
-        escapes++;
-        if (escapes >= maxEscapes) {
-          yes.classList.add('given-up');
-          return;
-        }
-
         const boxRect = box.getBoundingClientRect();
+        const actionsRect = box.querySelector('.modal-actions').getBoundingClientRect();
         const cancelRect = cancel.getBoundingClientRect();
         const yesW = r.width, yesH = r.height;
         const padding = 10;
         let nx, ny, tries = 0;
         do {
-          nx = padding + Math.random() * (boxRect.width - yesW - padding * 2);
-          ny = padding + Math.random() * (boxRect.height - yesH - padding * 2);
+          nx = padding + Math.random() * (actionsRect.width - yesW - padding * 2);
+          ny = padding + Math.random() * (actionsRect.height - yesH - padding * 2);
           tries++;
           if (tries > 30) break;
-          const absX = boxRect.left + nx + yesW / 2;
-          const absY = boxRect.top + ny + yesH / 2;
+          const absX = actionsRect.left + nx + yesW / 2;
+          const absY = actionsRect.top + ny + yesH / 2;
           const farFromCursor = Math.hypot(absX - mouseX, absY - mouseY) > 140;
           const cancelOverlap =
             absX + yesW / 2 > cancelRect.left - 8 &&
@@ -1922,6 +1956,14 @@
       }
 
       cancel.addEventListener('click', close);
+      if (giveUp) {
+        giveUp.addEventListener('click', () => {
+          givenUp = true;
+          yes.classList.add('given-up');
+          giveUp.disabled = true;
+          giveUp.textContent = '✓ Unlocked — click the red button';
+        });
+      }
       yes.addEventListener('click', () => {
         close();
         if (onConfirm) onConfirm();
@@ -1951,27 +1993,27 @@
       renderManualGroupList();
     }
 
-    // Reveal Answer (Step 5): runaway with 8-attempt cap, like Fill F. Catch it = reveal.
-    // The secret xyzzy phrase still works as a backdoor that bypasses the prank entirely.
+    // Reveal Answer (Step 5): Yes runs away forever. Click "I give up" to unlock it,
+    // or use the secret xyzzy/!reveal phrase in the verify input as a hidden backdoor.
     function openRevealPrank() {
       openRunawayConfirm({
         title: 'Are you sure?',
         message: 'You want to reveal the answer?',
         yesText: 'Yes, reveal it',
-        cancelText: 'Cancel',
-        maxEscapes: 8,
+        cancelText: "OK fine, I'll keep trying",
+        giveUpText: '🏳️ I give up — show me the answer',
         onConfirm: revealAnswer,
       });
     }
 
-    // Skip-practice prank for "Fill F from expression" (Step 2): gives up after 8 escapes.
+    // Skip-practice prank for "Fill F from expression" (Step 2). Same three-button shape.
     function openAutoFillPrank() {
       openRunawayConfirm({
         title: 'Skip the practice?',
-        message: 'This fills the F column automatically from the expression. You\'ll lose the manual practice.',
+        message: "This fills the F column automatically from the expression. You'll lose the manual practice.",
         yesText: 'Yes, fill it for me',
-        cancelText: 'No, I\'ll do it',
-        maxEscapes: 8,
+        cancelText: "OK fine, I'll try myself",
+        giveUpText: '🏳️ I give up — just show me',
         onConfirm: autoFillFromExpression,
       });
     }
