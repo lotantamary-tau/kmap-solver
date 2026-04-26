@@ -31,10 +31,72 @@
     .kmap-cell.wrong { background: #fdd; }
     .kmap-header { font-size: 12px; color: #666; padding: 4px 8px; }
     .kmap-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
-    .kmap-overlay .rect { position: absolute; border: 2px solid; border-radius: 6px; }
-    .kmap-cell.pending { outline: 3px dashed #06c; outline-offset: -3px; z-index: 1; }
-    .group-chip { display: inline-block; padding: 4px 8px; margin: 2px; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; font-size: 13px; }
-    .group-chip .remove { margin-left: 6px; cursor: pointer; color: #c00; font-weight: 700; }
+    .kmap-overlay .rect {
+      position: absolute;
+      border: 3px solid;
+      border-radius: 10px;
+      box-sizing: border-box;
+      transition: opacity 0.2s, border-width 0.2s;
+    }
+    .kmap-overlay .rect.flash { opacity: 1 !important; border-width: 5px; }
+    .kmap-overlay .rect-label {
+      position: absolute;
+      top: -10px;
+      left: 8px;
+      background: #fff;
+      padding: 0 6px;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: 3px;
+      white-space: nowrap;
+    }
+    .kmap-cell.pending {
+      outline: 3px dashed #06c;
+      outline-offset: -3px;
+      z-index: 1;
+      background-color: rgba(6, 112, 204, 0.12);
+    }
+    .kmap-cell.dragging {
+      outline: 3px dashed #06c;
+      outline-offset: -3px;
+      z-index: 1;
+      background-color: rgba(6, 112, 204, 0.05);
+    }
+    .group-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      margin: 4px 6px 4px 0;
+      border-radius: 8px;
+      border: 2px solid;
+      background: #fff;
+      font-family: monospace;
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.1s;
+    }
+    .group-chip:hover { transform: translateY(-1px); }
+    .group-chip .swatch {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+    }
+    .group-chip .remove {
+      margin-left: 4px;
+      cursor: pointer;
+      color: #c00;
+      font-weight: 700;
+      padding: 0 4px;
+    }
+    .solve-section { margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee; }
+    .solve-section h4 { margin: 0 0 8px; color: #666; font-weight: 500; font-size: 14px; }
+    .edit-link { font-size: 13px; margin-left: 12px; color: #06c; cursor: pointer; text-decoration: none; }
+    .edit-link:hover { text-decoration: underline; }
+    .edit-link.active { color: #c00; font-weight: 600; }
     .step-header { display: flex; justify-content: space-between; align-items: center; }
     .step-header h2 { margin: 0; }
     .reset-link { font-size: 12px; color: #888; text-decoration: none; }
@@ -116,6 +178,15 @@
     }
 
     const RESERVED = new Set(['AND','OR','NOT','and','or','not']);
+    const PALETTE = ['#e63946', '#1d9bf0', '#2a9d8f', '#f4a261', '#9b5de5', '#ff6700', '#06d6a0', '#ef476f'];
+    function paletteColor(i) { return PALETTE[i % PALETTE.length]; }
+    function withAlpha(hex, a) {
+      // accept '#rrggbb', return rgba string with alpha 0..1
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      return `rgba(${r}, ${g}, ${b}, ${a})`;
+    }
     const state = {
       n: null, varNames: [], values: [], step: 1, kmapBuilt: false,
       answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
@@ -124,6 +195,8 @@
       _step4Rendered: false,
       _step5Rendered: false,
       _exportReady: true,
+      dragging: null,
+      _suppressClick: false,
     };
 
     function renderExprBanner(bodyId) {
@@ -223,26 +296,50 @@
       const body = document.getElementById('step4Body');
       body.innerHTML = '';
       renderExprBanner('step4Body');
+
+      // Default to manual mode
+      state.manualMode = true;
+
       body.insertAdjacentHTML('beforeend', `
-        <button id="solveSopBtn">Solve 1s (SOP)</button>
-        <button id="solvePosBtn">Solve 0s (POS)</button>
-        <button id="clearBtn">Clear</button>
-        <button id="randomBtn">Random</button>
-        <label style="margin-left: 16px;"><input type="checkbox" id="manualMode"> Manual mode</label>
-        <div id="resultExpr" style="margin-top: 12px; font-family: monospace; font-size: 16px;"></div>
-        <div id="manualPanel" style="display: none; margin-top: 12px;"></div>
+        <div id="manualSection">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+            <strong>Manual grouping</strong>
+            <a href="#" class="edit-link" id="editValuesLink" title="Toggle to edit K-map cell values">&#9998; Edit cell values instead</a>
+          </div>
+          <div id="manualPanel"></div>
+        </div>
+        <div class="solve-section">
+          <h4>Or auto-solve:</h4>
+          <button id="solveSopBtn">Solve 1s (SOP)</button>
+          <button id="solvePosBtn">Solve 0s (POS)</button>
+          <button id="clearBtn">Clear</button>
+          <button id="randomBtn">Random</button>
+          <div id="resultExpr" style="margin-top: 12px; font-family: monospace; font-size: 16px;"></div>
+        </div>
       `);
+
       document.getElementById('solveSopBtn').addEventListener('click', () => doSolve('SOP'));
       document.getElementById('solvePosBtn').addEventListener('click', () => doSolve('POS'));
       document.getElementById('clearBtn').addEventListener('click', clearMap);
       document.getElementById('randomBtn').addEventListener('click', randomFill);
-      document.getElementById('manualMode').addEventListener('change', toggleManualMode);
+      document.getElementById('editValuesLink').addEventListener('click', e => {
+        e.preventDefault();
+        state.manualMode = !state.manualMode;
+        state.pendingSelection.clear();
+        updatePendingHighlight();
+        e.target.classList.toggle('active', !state.manualMode);
+        e.target.textContent = state.manualMode ? '✎ Edit cell values instead' : '✓ Now editing cell values — click to switch back to grouping';
+        document.getElementById('manualPanel').style.display = state.manualMode ? 'block' : 'none';
+      });
+
+      // Render manual panel by default since manualMode is on
+      renderManualPanel();
     }
 
     function doSolve(mode) {
       state.solveMode = mode;
       const r = KMapCore.solve(state.values, state.n, mode, state.varNames);
-      state.solverGroups = r.groups;
+      state.solverGroups = r.groups.map((g, i) => ({ ...g, color: paletteColor(i) }));
       document.getElementById('resultExpr').textContent = `F = ${r.expression}`;
       renderOverlays();
     }
@@ -261,22 +358,32 @@
         cellRects[`${r},${c}`] = cell.getBoundingClientRect();
       });
       const overlayRect = overlay.parentElement.getBoundingClientRect();
-      for (const g of all) {
-        for (const rc of g.rects) {
+      all.forEach((g, gi) => {
+        g.rects.forEach((rc, ri) => {
           const tl = cellRects[`${rc.r0},${rc.c0}`];
           const br = cellRects[`${rc.r0 + rc.h - 1},${rc.c0 + rc.w - 1}`];
-          if (!tl || !br) continue;
+          if (!tl || !br) return;
           const div = document.createElement('div');
           div.className = 'rect';
-          div.style.left = (tl.left - overlayRect.left - 2) + 'px';
-          div.style.top = (tl.top - overlayRect.top - 2) + 'px';
-          div.style.width = (br.right - tl.left + 4) + 'px';
-          div.style.height = (br.bottom - tl.top + 4) + 'px';
+          div.dataset.groupIndex = String(gi);
+          div.style.left = (tl.left - overlayRect.left - 3) + 'px';
+          div.style.top = (tl.top - overlayRect.top - 3) + 'px';
+          div.style.width = (br.right - tl.left + 6) + 'px';
+          div.style.height = (br.bottom - tl.top + 6) + 'px';
           div.style.borderColor = g.color;
+          div.style.backgroundColor = withAlpha(g.color, 0.18);
           div.title = g.term;
+          // Show label only on the first rect of the group (avoid duplicate labels for wrap groups)
+          if (ri === 0) {
+            const label = document.createElement('span');
+            label.className = 'rect-label';
+            label.style.color = g.color;
+            label.textContent = g.term;
+            div.appendChild(label);
+          }
           overlay.appendChild(div);
-        }
-      }
+        });
+      });
     }
 
     window.addEventListener('resize', renderOverlays);
@@ -353,11 +460,25 @@
         const chip = document.createElement('span');
         chip.className = 'group-chip';
         chip.style.borderColor = g.color;
-        chip.innerHTML = `${g.term} <span class="remove" data-idx="${idx}">×</span>`;
-        chip.querySelector('.remove').addEventListener('click', () => {
+        chip.dataset.groupIndex = String(state.solverGroups.length + idx);  // overlay groups are indexed solver-then-manual
+        chip.innerHTML = `
+          <span class="swatch" style="background: ${g.color}"></span>
+          <span class="term">${g.term}</span>
+          <span class="remove" data-idx="${idx}">&#215;</span>
+        `;
+        chip.querySelector('.remove').addEventListener('click', e => {
+          e.stopPropagation();
           state.manualGroups.splice(idx, 1);
           renderManualGroupList();
           renderOverlays();
+        });
+        chip.addEventListener('click', () => {
+          // Flash the matching overlay rect(s)
+          const gi = +chip.dataset.groupIndex;
+          document.querySelectorAll(`#kmapOverlay .rect[data-group-index="${gi}"]`).forEach(r => {
+            r.classList.add('flash');
+            setTimeout(() => r.classList.remove('flash'), 800);
+          });
         });
         list.appendChild(chip);
       });
@@ -380,7 +501,7 @@
       }
       const term = KMapCore.extractTerm(cube.andMask, cube.freeBits, state.n, state.varNames, mode);
       const idx = state.manualGroups.length;
-      const color = `hsl(${(idx * 47 + 13) % 360}, 70%, 55%)`;
+      const color = paletteColor(idx);
       const rects = KMapCore.groupRects(minterms, state.n);
       state.manualGroups.push({
         minterms: minterms.slice().sort((a,b)=>a-b),
@@ -599,6 +720,62 @@
       wrap.appendChild(overlay);
       body.appendChild(wrap);
 
+      // Drag-to-select wiring (only active when state.manualMode is true)
+      const wrap2 = wrap; // the .kmap div from earlier in renderKmap
+      function getCellMinterm(target) {
+        const c = target.closest('.kmap-cell[data-minterm]');
+        return c ? +c.dataset.minterm : null;
+      }
+      function rectFromCells(m1, m2) {
+        const a = KMapCore.mintermToCell(m1, state.n);
+        const b = KMapCore.mintermToCell(m2, state.n);
+        const r0 = Math.min(a.r, b.r), r1 = Math.max(a.r, b.r);
+        const c0 = Math.min(a.c, b.c), c1 = Math.max(a.c, b.c);
+        const cells = [];
+        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) cells.push(KMapCore.cellToMinterm(r, c, state.n));
+        return cells;
+      }
+      function setDragPreview(m1, m2) {
+        document.querySelectorAll('#step3Body .kmap-cell.dragging').forEach(c => c.classList.remove('dragging'));
+        if (m1 === null || m2 === null) return;
+        const ms = new Set(rectFromCells(m1, m2));
+        document.querySelectorAll('#step3Body .kmap-cell[data-minterm]').forEach(cell => {
+          if (ms.has(+cell.dataset.minterm)) cell.classList.add('dragging');
+        });
+      }
+      wrap2.addEventListener('mousedown', e => {
+        if (!state.manualMode) return;
+        const m = getCellMinterm(e.target);
+        if (m === null) return;
+        e.preventDefault();
+        state.dragging = { active: true, startM: m, lastM: m, hadMove: false };
+        setDragPreview(m, m);
+      });
+      wrap2.addEventListener('mousemove', e => {
+        if (!state.dragging || !state.dragging.active) return;
+        const m = getCellMinterm(e.target);
+        if (m === null || m === state.dragging.lastM) return;
+        state.dragging.lastM = m;
+        state.dragging.hadMove = true;
+        setDragPreview(state.dragging.startM, m);
+      });
+      window.addEventListener('mouseup', () => {
+        if (!state.dragging || !state.dragging.active) return;
+        const { startM, lastM, hadMove } = state.dragging;
+        setDragPreview(null, null);
+        if (hadMove) {
+          // Commit the rectangle to pending selection (additive)
+          for (const m of rectFromCells(startM, lastM)) state.pendingSelection.add(m);
+          updatePendingHighlight();
+          state.dragging = null;
+          // Suppress the trailing click on the cell that ended the drag
+          state._suppressClick = true;
+          setTimeout(() => { state._suppressClick = false; }, 0);
+        } else {
+          state.dragging = null; // pure click — let cycleKmap's existing toggle handle it
+        }
+      });
+
       // Controls
       const ctrls = document.createElement('div'); ctrls.style.marginTop = '8px';
       ctrls.innerHTML = `
@@ -612,6 +789,7 @@
     }
 
     function cycleKmap(m) {
+      if (state._suppressClick) return;
       if (state.manualMode) {
         if (state.pendingSelection.has(m)) state.pendingSelection.delete(m);
         else state.pendingSelection.add(m);
