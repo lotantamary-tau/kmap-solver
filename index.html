@@ -32,6 +32,9 @@
     .kmap-header { font-size: 12px; color: #666; padding: 4px 8px; }
     .kmap-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
     .kmap-overlay .rect { position: absolute; border: 2px solid; border-radius: 6px; }
+    .kmap-cell.pending { outline: 3px dashed #06c; outline-offset: -3px; z-index: 1; }
+    .group-chip { display: inline-block; padding: 4px 8px; margin: 2px; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; font-size: 13px; }
+    .group-chip .remove { margin-left: 6px; cursor: pointer; color: #c00; font-weight: 700; }
   </style>
 </head>
 <body>
@@ -235,7 +238,167 @@
 
     function toggleManualMode(e) {
       state.manualMode = e.target.checked;
-      // Task 13 will populate the manual panel.
+      state.pendingSelection.clear();
+      updatePendingHighlight();
+      const panel = document.getElementById('manualPanel');
+      if (state.manualMode) {
+        panel.style.display = 'block';
+        renderManualPanel();
+      } else {
+        panel.style.display = 'none';
+      }
+    }
+
+    function renderManualPanel() {
+      const panel = document.getElementById('manualPanel');
+      // Default polarity: existing solveMode, or SOP
+      const polarity = state.solveMode || 'SOP';
+      state.solveMode = polarity;
+      panel.innerHTML = `
+        <div>
+          <label><input type="radio" name="manualPolarity" value="SOP" ${polarity==='SOP'?'checked':''}> SOP (group 1s)</label>
+          <label style="margin-left: 12px;"><input type="radio" name="manualPolarity" value="POS" ${polarity==='POS'?'checked':''}> POS (group 0s)</label>
+        </div>
+        <div style="margin-top: 8px;">
+          <button id="confirmGroupBtn">Confirm group</button>
+          <button id="cancelGroupBtn">Cancel</button>
+          <span class="err" id="manualErr" style="margin-left: 12px;"></span>
+        </div>
+        <div id="manualGroupList" style="margin-top: 8px;"></div>
+        <div style="margin-top: 8px;">
+          <button id="checkGroupsBtn">Check my groups</button>
+          <div id="checkGroupsResult" style="margin-top: 6px; font-size: 13px; white-space: pre-line;"></div>
+        </div>
+      `;
+      panel.querySelectorAll('input[name="manualPolarity"]').forEach(r => {
+        r.addEventListener('change', e => { state.solveMode = e.target.value; });
+      });
+      document.getElementById('confirmGroupBtn').addEventListener('click', confirmManualGroup);
+      document.getElementById('cancelGroupBtn').addEventListener('click', () => {
+        state.pendingSelection.clear();
+        updatePendingHighlight();
+        document.getElementById('manualErr').textContent = '';
+      });
+      document.getElementById('checkGroupsBtn').addEventListener('click', checkManualGroups);
+      renderManualGroupList();
+    }
+
+    function renderManualGroupList() {
+      const list = document.getElementById('manualGroupList');
+      if (!list) return;
+      list.innerHTML = '';
+      state.manualGroups.forEach((g, idx) => {
+        const chip = document.createElement('span');
+        chip.className = 'group-chip';
+        chip.style.borderColor = g.color;
+        chip.innerHTML = `${g.term} <span class="remove" data-idx="${idx}">×</span>`;
+        chip.querySelector('.remove').addEventListener('click', () => {
+          state.manualGroups.splice(idx, 1);
+          renderManualGroupList();
+          renderOverlays();
+        });
+        list.appendChild(chip);
+      });
+    }
+
+    function confirmManualGroup() {
+      const errEl = document.getElementById('manualErr');
+      errEl.textContent = '';
+      const minterms = [...state.pendingSelection];
+      if (minterms.length === 0) { errEl.textContent = 'Select cells first.'; return; }
+      const cube = KMapCore.isValidCube(minterms, state.n);
+      if (!cube.ok) { errEl.textContent = cube.reason; return; }
+      const mode = state.solveMode || 'SOP';
+      const target = mode === 'SOP' ? 1 : 0;
+      for (const m of minterms) {
+        if (state.values[m] !== target && state.values[m] !== 'X') {
+          errEl.textContent = `contains a ${state.values[m]} cell`;
+          return;
+        }
+      }
+      const term = KMapCore.extractTerm(cube.andMask, cube.freeBits, state.n, state.varNames, mode);
+      const idx = state.manualGroups.length;
+      const color = `hsl(${(idx * 47 + 13) % 360}, 70%, 55%)`;
+      const rects = KMapCore.groupRects(minterms, state.n);
+      state.manualGroups.push({
+        minterms: minterms.slice().sort((a,b)=>a-b),
+        term, color, rects,
+        andMask: cube.andMask, freeBits: cube.freeBits,
+      });
+      state.pendingSelection.clear();
+      updatePendingHighlight();
+      renderManualGroupList();
+      renderOverlays();
+    }
+
+    function checkManualGroups() {
+      const out = document.getElementById('checkGroupsResult');
+      if (state.manualGroups.length === 0) { out.textContent = 'No manual groups yet.'; return; }
+      const mode = state.solveMode || 'SOP';
+      const ref = KMapCore.solve(state.values, state.n, mode, state.varNames);
+      const target = mode === 'SOP' ? 1 : 0;
+      const required = [];
+      for (let m = 0; m < state.values.length; m++) if (state.values[m] === target) required.push(m);
+
+      const lines = [];
+      // Per-group status
+      state.manualGroups.forEach((g, i) => {
+        const cube = KMapCore.isValidCube(g.minterms, state.n);
+        if (!cube.ok) { lines.push(`Group ${i+1} (${g.term}): ✗ ${cube.reason}`); return; }
+        let badPolarity = null;
+        for (const m of g.minterms) {
+          if (state.values[m] !== target && state.values[m] !== 'X') {
+            badPolarity = m; break;
+          }
+        }
+        if (badPolarity !== null) {
+          lines.push(`Group ${i+1} (${g.term}): ✗ contains a ${state.values[badPolarity]} cell at m=${badPolarity}`); return;
+        }
+        // Primality: try to extend by flipping one fixed bit
+        const fixedBits = ((1 << state.n) - 1) & ~cube.freeBits;
+        let extendable = false;
+        for (let bit = 0; bit < state.n; bit++) {
+          const b = 1 << bit;
+          if (!(fixedBits & b)) continue;
+          const extendedFreeBits = cube.freeBits | b;
+          const extendedAndMask = cube.andMask & ~b;
+          // Build extended cube minterm set
+          const ext = [];
+          // enumerate subsets of extendedFreeBits
+          let sub = 0;
+          while (true) {
+            ext.push(extendedAndMask | sub);
+            if (sub === extendedFreeBits) break;
+            sub = (sub - extendedFreeBits) & extendedFreeBits;
+          }
+          // Check all are valid (1/X for SOP, 0/X for POS)
+          const allOk = ext.every(m => state.values[m] === target || state.values[m] === 'X');
+          if (allOk) { extendable = true; break; }
+        }
+        if (extendable) lines.push(`Group ${i+1} (${g.term}): ⚠ valid cube but extendable (not prime)`);
+        else lines.push(`Group ${i+1} (${g.term}): ✓ prime implicant`);
+      });
+
+      // Coverage
+      const covered = new Set();
+      for (const g of state.manualGroups) for (const m of g.minterms) covered.add(m);
+      const missing = required.filter(m => !covered.has(m));
+      lines.push('');
+      if (missing.length === 0) lines.push('Coverage: ✓ all required minterms covered');
+      else lines.push(`Coverage: missing minterms: ${missing.join(',')}`);
+
+      // Minimality
+      const userLits = state.manualGroups.reduce((sum, g) => sum + (state.n - KMapCore.popcount(g.freeBits)), 0);
+      const refLits = ref.groups.reduce((sum, g) => {
+        // ref.groups have term + minterms + rects + color, but freeBits is recoverable from minterms via popcount of XOR-ed bits.
+        // Easier: re-validate to get freeBits.
+        const c = KMapCore.isValidCube(g.minterms, state.n);
+        return sum + (c.ok ? state.n - KMapCore.popcount(c.freeBits) : 0);
+      }, 0);
+      if (state.manualGroups.length === ref.groups.length && userLits <= refLits) lines.push('Minimality: ✓ minimal cover');
+      else lines.push(`Minimality: your cover uses ${state.manualGroups.length} groups (${userLits} literals); minimum is ${ref.groups.length} (${refLits} literals)`);
+
+      out.textContent = lines.join('\n');
     }
 
     function renderKmap() {
@@ -301,13 +464,25 @@
     }
 
     function cycleKmap(m) {
+      if (state.manualMode) {
+        if (state.pendingSelection.has(m)) state.pendingSelection.delete(m);
+        else state.pendingSelection.add(m);
+        updatePendingHighlight();
+        return;
+      }
       const cur = state.kmapDraft[m];
-      // Cycle: null → 0 → 1 → X → 0 (after first click, never returns to null)
       if (cur === null) state.kmapDraft[m] = 0;
       else if (cur === 0) state.kmapDraft[m] = 1;
       else if (cur === 1) state.kmapDraft[m] = 'X';
       else state.kmapDraft[m] = 0;
       renderAll();
+    }
+
+    function updatePendingHighlight() {
+      document.querySelectorAll('#step3Body .kmap-cell[data-minterm]').forEach(cell => {
+        const m = +cell.dataset.minterm;
+        cell.classList.toggle('pending', state.pendingSelection.has(m));
+      });
     }
 
     function autoFillKmap() {
