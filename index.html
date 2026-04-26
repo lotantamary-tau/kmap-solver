@@ -105,10 +105,6 @@
 </head>
 <body>
   <h1>K-Map Solver</h1>
-  <div style="margin-bottom: 12px;">
-    <button id="randomFnBtn" disabled>🎲 Random function</button>
-    <span style="font-size: 12px; color: #888; margin-left: 8px;">— loads a random truth table for practice (available after Step 1)</span>
-  </div>
   <div class="breadcrumb" id="breadcrumb">
     <span class="active">1. Variables</span>
     <span>→</span><span>2. Truth table</span>
@@ -136,7 +132,11 @@
       <div class="err" id="step1ExprErr"></div>
     </div>
     <div class="err" id="step1Err"></div>
-    <button id="continueBtn" style="margin-top: 12px;">Continue</button>
+    <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
+      <button id="continueBtn">Continue</button>
+      <button id="randomFnBtn">🎲 Random function</button>
+      <span style="font-size: 12px; color: #888;">— skip Continue and load a random truth table for practice</span>
+    </div>
   </section>
 
   <section id="step2" class="step disabled">
@@ -269,12 +269,15 @@
     }
 
     function practiceRandom() {
-      if (state.step < 2) return; // button should be disabled, but defensive
+      // Self-commits Step 1: validate, set state.n + varNames from inputs, then load a random function.
+      if (!validateStep1()) return;
+      state.n = parseInt(document.getElementById('varCount').value, 10);
+      state.varNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
+      state.kmapLayout = KMapCore.defaultLayout(state.n);
       // Random 0/1 function (no don't-cares)
       state.values = Array.from({ length: 1 << state.n }, () => Math.random() < 0.5 ? 0 : 1);
       state.kmapDraft = state.values.slice();
       state.kmapBuilt = true;
-      state.kmapLayout = KMapCore.defaultLayout(state.n);
       // Clear answer key + groups + verification — random functions don't have an expression
       state.answerKey = null;
       state.solverGroups = [];
@@ -302,11 +305,6 @@
       const exprInput = document.getElementById('exprInput');
       if (exprInput) exprInput.value = '';
       renderAll();
-    }
-
-    function updateRandomButton() {
-      const btn = document.getElementById('randomFnBtn');
-      if (btn) btn.disabled = state.step < 2;
     }
 
     const RESERVED = new Set(['AND','OR','NOT','and','or','not']);
@@ -430,7 +428,6 @@
         }
       }
       updateBreadcrumb();
-      updateRandomButton();
     }
 
     function renderStep4() {
