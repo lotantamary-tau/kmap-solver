@@ -74,6 +74,7 @@
       answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
       manualMode: false, pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
+      _step4Rendered: false,
     };
 
     function renderTruthTable() {
@@ -125,9 +126,11 @@
       document.getElementById('setKeyBtn').addEventListener('click', () => applyExpression('answerkey'));
       document.getElementById('checkTtBtn').addEventListener('click', checkTruthTable);
       document.getElementById('buildKmapBtn').addEventListener('click', () => {
-        state.kmapBuilt = true; state.step = 3;
+        state.kmapBuilt = true;
+        state.step = 4;
         state.kmapDraft = Array(1 << state.n).fill(null);
         document.getElementById('step3').classList.remove('disabled');
+        document.getElementById('step4').classList.remove('disabled');
         renderAll();
       });
       if (state.answerKey) document.getElementById('checkTtBtn').disabled = false;
@@ -143,7 +146,96 @@
     function renderAll() {
       if (state.step >= 2) renderTruthTable();
       if (state.step >= 3) renderKmap();
-      // Step 4 + 5 added in later tasks.
+      if (state.step >= 4) {
+        if (!state._step4Rendered) {
+          renderStep4();
+          state._step4Rendered = true;
+        }
+        renderOverlays();
+      }
+      // Step 5 added in Task 14.
+    }
+
+    function renderStep4() {
+      const body = document.getElementById('step4Body');
+      body.innerHTML = `
+        <button id="solveSopBtn">Solve 1s (SOP)</button>
+        <button id="solvePosBtn">Solve 0s (POS)</button>
+        <button id="clearBtn">Clear</button>
+        <button id="randomBtn">Random</button>
+        <label style="margin-left: 16px;"><input type="checkbox" id="manualMode"> Manual mode</label>
+        <div id="resultExpr" style="margin-top: 12px; font-family: monospace; font-size: 16px;"></div>
+        <div id="manualPanel" style="display: none; margin-top: 12px;"></div>
+      `;
+      document.getElementById('solveSopBtn').addEventListener('click', () => doSolve('SOP'));
+      document.getElementById('solvePosBtn').addEventListener('click', () => doSolve('POS'));
+      document.getElementById('clearBtn').addEventListener('click', clearMap);
+      document.getElementById('randomBtn').addEventListener('click', randomFill);
+      document.getElementById('manualMode').addEventListener('change', toggleManualMode);
+    }
+
+    function doSolve(mode) {
+      state.solveMode = mode;
+      const r = KMapCore.solve(state.values, state.n, mode, state.varNames);
+      state.solverGroups = r.groups;
+      document.getElementById('resultExpr').textContent = `F = ${r.expression}`;
+      renderOverlays();
+    }
+
+    function renderOverlays() {
+      const overlay = document.getElementById('kmapOverlay');
+      if (!overlay) return;
+      overlay.innerHTML = '';
+      const all = [...state.solverGroups, ...state.manualGroups];
+      if (all.length === 0) return;
+      const cells = document.querySelectorAll('#step3Body .kmap-cell[data-minterm]');
+      const cellRects = {};
+      cells.forEach(cell => {
+        const m = +cell.dataset.minterm;
+        const { r, c } = KMapCore.mintermToCell(m, state.n);
+        cellRects[`${r},${c}`] = cell.getBoundingClientRect();
+      });
+      const overlayRect = overlay.parentElement.getBoundingClientRect();
+      for (const g of all) {
+        for (const rc of g.rects) {
+          const tl = cellRects[`${rc.r0},${rc.c0}`];
+          const br = cellRects[`${rc.r0 + rc.h - 1},${rc.c0 + rc.w - 1}`];
+          if (!tl || !br) continue;
+          const div = document.createElement('div');
+          div.className = 'rect';
+          div.style.left = (tl.left - overlayRect.left - 2) + 'px';
+          div.style.top = (tl.top - overlayRect.top - 2) + 'px';
+          div.style.width = (br.right - tl.left + 4) + 'px';
+          div.style.height = (br.bottom - tl.top + 4) + 'px';
+          div.style.borderColor = g.color;
+          div.title = g.term;
+          overlay.appendChild(div);
+        }
+      }
+    }
+
+    window.addEventListener('resize', renderOverlays);
+
+    function clearMap() {
+      state.values.fill(0);
+      if (state.kmapDraft) state.kmapDraft.fill(0);
+      state.solverGroups = [];
+      state.manualGroups = [];
+      const re = document.getElementById('resultExpr');
+      if (re) re.textContent = '';
+      renderAll();
+    }
+
+    function randomFill() {
+      for (let i = 0; i < state.values.length; i++) state.values[i] = Math.random() < 0.5 ? 0 : 1;
+      if (state.kmapDraft) for (let i = 0; i < state.kmapDraft.length; i++) state.kmapDraft[i] = state.values[i];
+      state.solverGroups = [];
+      renderAll();
+    }
+
+    function toggleManualMode(e) {
+      state.manualMode = e.target.checked;
+      // Task 13 will populate the manual panel.
     }
 
     function renderKmap() {
