@@ -99,6 +99,27 @@
       }
       tbl.appendChild(tbody);
       body.appendChild(tbl);
+      const exprWrap = document.createElement('div');
+      exprWrap.style.marginTop = '12px';
+      exprWrap.innerHTML = `
+  <label>Expression: <input id="exprInput" type="text" style="width: 300px;" placeholder="${state.varNames.join('')} + ${state.varNames[0]}'..."></label>
+  <button id="autoFillBtn">Auto-fill F column</button>
+  <button id="setKeyBtn">Set as answer key</button>
+  <button id="checkTtBtn" disabled>Check truth table</button>
+  <span class="err" id="exprErr"></span>
+  <span id="checkTtResult" style="margin-left: 12px; font-size: 13px;"></span>
+  <button id="buildKmapBtn" style="margin-left: 24px;">Build K-map</button>
+`;
+      body.appendChild(exprWrap);
+      document.getElementById('autoFillBtn').addEventListener('click', () => applyExpression('autofill'));
+      document.getElementById('setKeyBtn').addEventListener('click', () => applyExpression('answerkey'));
+      document.getElementById('checkTtBtn').addEventListener('click', checkTruthTable);
+      document.getElementById('buildKmapBtn').addEventListener('click', () => {
+        state.kmapBuilt = true; state.step = 3;
+        document.getElementById('step3').classList.remove('disabled');
+        renderAll();
+      });
+      if (state.answerKey) document.getElementById('checkTtBtn').disabled = false;
     }
 
     function cycleF(m) {
@@ -111,6 +132,37 @@
     function renderAll() {
       if (state.step >= 2) renderTruthTable();
       // Step 3 + 4 + 5 added in later tasks.
+    }
+
+    function applyExpression(mode) {
+      const src = document.getElementById('exprInput').value;
+      const errEl = document.getElementById('exprErr');
+      const r = KMapCore.parseExpression(src, state.varNames);
+      if (!r.ok) { errEl.textContent = r.error; return; }
+      errEl.textContent = '';
+      const evaluated = [];
+      for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
+      if (mode === 'autofill') {
+        for (let m = 0; m < evaluated.length; m++) state.values[m] = evaluated[m];
+        state.solverGroups = [];
+      }
+      state.answerKey = { expression: src, evaluated };
+      document.getElementById('checkTtBtn').disabled = false;
+      renderAll();
+    }
+
+    function checkTruthTable() {
+      if (!state.answerKey) return;
+      const correct = state.answerKey.evaluated;
+      let pass = 0; const wrong = [];
+      document.querySelectorAll('#step2Body td.f').forEach(td => {
+        const m = +td.dataset.minterm;
+        const ok = state.values[m] === correct[m];
+        td.classList.toggle('wrong', !ok);
+        if (ok) pass++; else { wrong.push(m); td.title = `expected ${correct[m]}`; }
+      });
+      document.getElementById('checkTtResult').textContent =
+        `${pass} / ${1 << state.n} correct` + (wrong.length ? ` — wrong: m=${wrong.join(',')}` : '');
     }
 
     function renderNameInputs() {
