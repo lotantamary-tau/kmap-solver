@@ -721,6 +721,25 @@
       margin: 0 0 16px;
     }
 
+    /* === Step 2 path controls (above the truth table) === */
+    .path-controls { margin: 16px 0 18px; }
+    .expr-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .expr-row #exprInput {
+      flex: 1;
+      min-width: 260px;
+      max-width: 420px;
+      font-family: var(--font-mono);
+    }
+    .row-hint {
+      font-size: 12px;
+      color: var(--text-3);
+    }
+
     /* === Step tools / step advance pattern === */
     .step-tools {
       display: flex;
@@ -759,9 +778,9 @@
   <h1>K-Map Solver</h1>
   <nav class="stepper" id="breadcrumb" aria-label="Wizard progress">
     <ol>
-      <li class="stepper-item is-active" data-step="1"><span class="stepper-num">1</span><span class="stepper-label">Setup</span></li>
+      <li class="stepper-item is-active" data-step="1"><span class="stepper-num">1</span><span class="stepper-label">Variables</span></li>
       <li class="stepper-line" aria-hidden="true"></li>
-      <li class="stepper-item" data-step="2"><span class="stepper-num">2</span><span class="stepper-label">Truth table</span></li>
+      <li class="stepper-item" data-step="2"><span class="stepper-num">2</span><span class="stepper-label">Setup</span></li>
       <li class="stepper-line" aria-hidden="true"></li>
       <li class="stepper-item" data-step="3"><span class="stepper-num">3</span><span class="stepper-label">K-map</span></li>
       <li class="stepper-line" aria-hidden="true"></li>
@@ -781,7 +800,8 @@
   </button>
 
   <section id="step1" class="step">
-    <h2>Step 1 — Setup</h2>
+    <h2>Step 1 — Variables</h2>
+    <p class="step-note">Pick how many variables you'll work with and what to call them.</p>
 
     <div class="field-row">
       <label class="field-label" for="varCount">How many variables?</label>
@@ -800,54 +820,14 @@
 
     <div class="err" id="step1Err"></div>
 
-    <div class="field-row" style="margin-top: 20px;">
-      <label class="field-label">Starting point</label>
-      <div class="segmented" role="tablist" id="startingPointToggle">
-        <button class="segmented-option is-active" data-path="expression" type="button" role="tab" aria-selected="true">Expression</button>
-        <button class="segmented-option" data-path="truthtable" type="button" role="tab" aria-selected="false">Truth table</button>
-        <span class="segmented-thumb"></span>
-      </div>
-    </div>
-
-    <div class="path-panel" id="pathExpression">
-      <div class="field-row">
-        <label class="field-label" for="exprInput">Boolean expression</label>
-        <input id="exprInput" type="text" placeholder="e.g. A'B + AC" autocomplete="off">
-      </div>
-      <div class="err" id="step1ExprErr"></div>
-      <div class="path-actions">
-        <div class="action-card">
-          <button id="continueBtn" type="button">Continue with this expression →</button>
-          <span class="action-caption">Uses what you typed above.</span>
-        </div>
-        <span class="or-divider">or</span>
-        <div class="action-card">
-          <button id="randomFnBtn" type="button">🎲 Random function</button>
-          <span class="action-caption">Let the app pick a random expression.</span>
-        </div>
-      </div>
-      <p class="path-note">In Step 2 you'll fill in the truth table based on this expression. Your answers will be verified against it.</p>
-    </div>
-
-    <div class="path-panel is-hidden" id="pathTruthTable">
-      <div class="path-actions">
-        <div class="action-card">
-          <button id="emptyTtBtn" type="button">Start with empty truth table →</button>
-          <span class="action-caption">F column starts blank.</span>
-        </div>
-        <span class="or-divider">or</span>
-        <div class="action-card">
-          <button id="randomTtBtn" type="button">🎲 Random truth table</button>
-          <span class="action-caption">F is filled with random 0s and 1s.</span>
-        </div>
-      </div>
-      <p class="path-note">No expression was given. The right answer will be based on the truth table.</p>
+    <div class="step-advance">
+      <button id="continueBtn" type="button">Continue →</button>
     </div>
   </section>
 
   <section id="step2" class="step disabled">
     <div class="step-header">
-      <h2>Step 2 — Truth table</h2>
+      <h2>Step 2 — Setup</h2>
       <a href="#" class="reset-link" data-step="2">Reset this step</a>
     </div>
     <div id="step2Body"></div>
@@ -976,38 +956,8 @@
           && a.colVars.every((v, i) => v === b.colVars[i]);
     }
 
-    function _commitStep1ForRandom() {
-      // Validate Step 1 and commit the variable count/names + reset all downstream state.
-      // Common setup for both random buttons. Lands the user at Step 2.
-      if (!validateStep1()) return false;
-      state.n = parseInt(document.getElementById('varCount').value, 10);
-      state.varNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
-      state.kmapLayout = KMapCore.defaultLayout(state.n);
-      state.kmapDraft = null;
-      state.kmapBuilt = false;
-      state.solverGroups = [];
-      state.manualGroups = [];
-      state.solveMode = null;
-      state.solverExpression = null;
-      state.solutionVerified = false;
-      state.verifiedExpression = null;
-      if (state.pendingSelection) state.pendingSelection.clear();
-      state._step4Rendered = false;
-      state._step5VerifyRendered = false;
-      state._step6Rendered = false;
-      state.step = 2;
-      state.maxStep = 2;
-      for (let i = 3; i <= 6; i++) {
-        const body = document.getElementById('step' + i + 'Body');
-        if (body) body.innerHTML = '';
-      }
-      return true;
-    }
-
+    // Step 2 random buttons: assume Step 1 already committed, just refresh content.
     function practiceRandomFunction() {
-      // Pick a random non-trivial Boolean expression. Show it as if the user typed it.
-      // F column starts empty (X) — user fills it manually; answerKey enables Check truth table.
-      if (!_commitStep1ForRandom()) return;
       let bits, sop;
       let tries = 0;
       do {
@@ -1018,20 +968,79 @@
       state.values = Array(1 << state.n).fill('X');
       state.answerKey = { expression: sop.expression, evaluated: bits };
       state.truthTableVerified = false;
-      const exprInput = document.getElementById('exprInput');
-      if (exprInput) exprInput.value = sop.expression;
+      cascadeChange(2);
       renderAll();
     }
 
     function practiceRandomTruthTable() {
-      // Random 0/1 bits straight into the truth table. No expression / no answer key.
-      if (!_commitStep1ForRandom()) return;
+      // Reroll random F values. No answer key.
       state.values = Array.from({ length: 1 << state.n }, () => Math.random() < 0.5 ? 0 : 1);
       state.answerKey = null;
       state.truthTableVerified = false;
-      const exprInput = document.getElementById('exprInput');
-      if (exprInput) exprInput.value = '';
+      cascadeChange(2);
       renderAll();
+    }
+
+    // Step 2 starting-point segmented control.
+    function setStartingPoint(path) {
+      if (state.startingPoint === path) return;
+      state.startingPoint = path;
+      // Switching to truth-table drops the answer key. F values are preserved.
+      if (path === 'truthtable') {
+        state.answerKey = null;
+        state.truthTableVerified = false;
+      }
+      cascadeChange(2);
+      renderAll();
+    }
+
+    // Live-parse the expression input: keep state.answerKey in sync without re-rendering the table.
+    function handleExprInput() {
+      const exprInput = document.getElementById('exprInput');
+      const errEl = document.getElementById('exprErr');
+      if (!exprInput) return;
+      const src = exprInput.value.trim();
+      if (!src) {
+        state.answerKey = null;
+        state.truthTableVerified = false;
+        if (errEl) errEl.textContent = '';
+        updateExpressionPathButtons();
+        return;
+      }
+      const r = KMapCore.parseExpression(src, state.varNames);
+      if (!r.ok) {
+        state.answerKey = null;
+        state.truthTableVerified = false;
+        if (errEl) errEl.textContent = r.error;
+        updateExpressionPathButtons();
+        return;
+      }
+      if (errEl) errEl.textContent = '';
+      const evaluated = [];
+      for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
+      state.answerKey = { expression: src, evaluated };
+      state.truthTableVerified = false;
+      updateExpressionPathButtons();
+    }
+
+    function updateExpressionPathButtons() {
+      const valid = !!state.answerKey;
+      const af = document.getElementById('autoFillBtn');
+      const ck = document.getElementById('checkTtBtn');
+      if (af) af.disabled = !valid;
+      if (ck) ck.disabled = !valid;
+      const cont = document.getElementById('buildKmapBtn');
+      if (cont) {
+        const locked = state.startingPoint === 'expression' && (!state.answerKey || !state.truthTableVerified);
+        cont.disabled = locked;
+        if (locked) {
+          cont.title = state.answerKey
+            ? 'Click Check truth table first — Continue unlocks once all rows match.'
+            : 'Type an expression (or click 🎲 Random function) and verify the truth table first.';
+        } else {
+          cont.removeAttribute('title');
+        }
+      }
     }
 
     const RESERVED = new Set(['AND','OR','NOT','and','or','not']);
@@ -1048,6 +1057,7 @@
       n: null, varNames: [], values: [], step: 1, maxStep: 1, kmapBuilt: false,
       answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
       truthTableVerified: false,
+      startingPoint: 'expression',  // Step 2 segmented control: 'expression' | 'truthtable'
       pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
       kmapLayout: null,
@@ -1081,18 +1091,7 @@
       body.prepend(banner);
     }
 
-    function renderTruthTable() {
-      const body = document.getElementById('step2Body');
-      body.innerHTML = '';
-      renderExprBanner('step2Body', { withAutoFill: !!state.answerKey });
-
-      const note = document.createElement('p');
-      note.className = 'step-note';
-      note.textContent = state.answerKey
-        ? "Fill in the F column for each row based on the expression above. Click Check to verify your answers — the Continue button unlocks once they all match."
-        : "Fill in the F column for each row however you'd like. There's no expression to check against, so you can continue whenever you're ready.";
-      body.appendChild(note);
-
+    function buildTruthTable() {
       const tbl = document.createElement('table');
       tbl.className = 'truthTable';
       const thead = document.createElement('thead');
@@ -1102,8 +1101,11 @@
         th.textContent = name;
         headRow.appendChild(th);
       }
-      const fTh = document.createElement('th'); fTh.textContent = 'F'; headRow.appendChild(fTh);
-      thead.appendChild(headRow); tbl.appendChild(thead);
+      const fTh = document.createElement('th');
+      fTh.textContent = 'F';
+      headRow.appendChild(fTh);
+      thead.appendChild(headRow);
+      tbl.appendChild(thead);
       const tbody = document.createElement('tbody');
       for (let m = 0; m < state.values.length; m++) {
         const tr = document.createElement('tr');
@@ -1122,30 +1124,100 @@
         tbody.appendChild(tr);
       }
       tbl.appendChild(tbody);
-      body.appendChild(tbl);
-      const continueLocked = !!state.answerKey && !state.truthTableVerified;
-      const exprWrap = document.createElement('div');
-      exprWrap.innerHTML = `
-        ${state.answerKey ? `
+      return tbl;
+    }
+
+    function renderTruthTable() {
+      const body = document.getElementById('step2Body');
+      body.innerHTML = '';
+      const path = state.startingPoint || 'expression';
+
+      // Step note (path-aware, short).
+      const note = document.createElement('p');
+      note.className = 'step-note';
+      note.textContent = path === 'expression'
+        ? "Set up an expression below, then fill in the truth table from it. The Check button verifies your answers."
+        : "Fill in the truth table directly. There's no expression to check against — Continue whenever you're ready.";
+      body.appendChild(note);
+
+      // Starting-point segmented control.
+      const slider = document.createElement('div');
+      slider.className = 'field-row';
+      slider.innerHTML = `
+        <label class="field-label">Starting point</label>
+        <div class="segmented" role="tablist" id="startingPointToggle" data-path="${path}">
+          <button class="segmented-option ${path === 'expression' ? 'is-active' : ''}" data-path="expression" type="button" role="tab" aria-selected="${path === 'expression'}">Expression</button>
+          <button class="segmented-option ${path === 'truthtable' ? 'is-active' : ''}" data-path="truthtable" type="button" role="tab" aria-selected="${path === 'truthtable'}">Truth table</button>
+          <span class="segmented-thumb"></span>
+        </div>
+      `;
+      body.appendChild(slider);
+
+      // Path-specific controls above the table.
+      const topControls = document.createElement('div');
+      topControls.className = 'path-controls';
+      if (path === 'expression') {
+        const exprValue = state.answerKey ? state.answerKey.expression : '';
+        const safeExpr = exprValue.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        topControls.innerHTML = `
+          <div class="expr-row">
+            <input id="exprInput" type="text" placeholder="e.g. A'B + AC" autocomplete="off" value="${safeExpr}">
+            <button id="randomFnBtn" type="button">🎲 Random function</button>
+            <button id="autoFillBtn" type="button" ${!state.answerKey ? 'disabled' : ''}>⤓ Auto-fill F column</button>
+          </div>
+          <div class="err" id="exprErr"></div>
+        `;
+      } else {
+        topControls.innerHTML = `
+          <div class="expr-row">
+            <button id="randomTtBtn" type="button">🎲 Random truth table</button>
+            <span class="row-hint">Click again to re-roll.</span>
+          </div>
+        `;
+      }
+      body.appendChild(topControls);
+
+      // Truth table — always visible.
+      body.appendChild(buildTruthTable());
+
+      // Path-specific controls below the table + Continue.
+      const continueLocked = path === 'expression' && (!state.answerKey || !state.truthTableVerified);
+      const continueTitle = continueLocked
+        ? (state.answerKey
+            ? 'Click Check truth table first — Continue unlocks once all rows match.'
+            : 'Type an expression (or click 🎲 Random function) and verify the truth table first.')
+        : '';
+      const bottom = document.createElement('div');
+      bottom.innerHTML = `
+        ${path === 'expression' ? `
           <div class="step-tools">
             <div class="step-tools-row">
-              <button id="checkTtBtn" type="button">Check truth table</button>
+              <button id="checkTtBtn" type="button" ${!state.answerKey ? 'disabled' : ''}>Check truth table</button>
             </div>
             <div id="checkTtResult" class="tool-result"></div>
-            <div class="err" id="exprErr"></div>
           </div>
         ` : ''}
         <div class="step-advance">
-          <button id="buildKmapBtn" type="button" ${continueLocked ? 'disabled' : ''}${continueLocked ? ' title="Click Check truth table first — Continue unlocks once all rows match the expression."' : ''}>Continue →</button>
+          <button id="buildKmapBtn" type="button" ${continueLocked ? 'disabled' : ''}${continueLocked ? ` title="${continueTitle}"` : ''}>Continue →</button>
         </div>
       `;
-      body.appendChild(exprWrap);
-      if (state.answerKey) {
+      body.appendChild(bottom);
+
+      // Wire handlers.
+      document.querySelectorAll('#startingPointToggle .segmented-option').forEach(btn => {
+        btn.addEventListener('click', () => setStartingPoint(btn.dataset.path));
+      });
+      if (path === 'expression') {
+        const exprInput = document.getElementById('exprInput');
+        if (exprInput) exprInput.addEventListener('input', handleExprInput);
+        document.getElementById('randomFnBtn').addEventListener('click', practiceRandomFunction);
         document.getElementById('autoFillBtn').addEventListener('click', autoFillFromExpression);
         document.getElementById('checkTtBtn').addEventListener('click', checkTruthTable);
+      } else {
+        document.getElementById('randomTtBtn').addEventListener('click', practiceRandomTruthTable);
       }
       document.getElementById('buildKmapBtn').addEventListener('click', () => {
-        if (!!state.answerKey && !state.truthTableVerified) return;
+        if (state.startingPoint === 'expression' && (!state.answerKey || !state.truthTableVerified)) return;
         state.kmapBuilt = true;
         state.step = 3;
         state.kmapDraft = Array(1 << state.n).fill(null);
@@ -2143,10 +2215,8 @@
       else if (new Set(names).size !== names.length) err = 'Names must be unique.';
       else if (names.some(s => RESERVED.has(s))) err = 'Names cannot be AND, OR, or NOT.';
       errEl.textContent = err;
-      ['continueBtn', 'randomFnBtn', 'emptyTtBtn', 'randomTtBtn'].forEach(id => {
-        const btn = document.getElementById(id);
-        if (btn) btn.disabled = !!err;
-      });
+      const cont = document.getElementById('continueBtn');
+      if (cont) cont.disabled = !!err;
       return !err;
     }
 
@@ -2154,58 +2224,19 @@
       cascadeChange(1);
       renderNameInputs();  // existing behavior — re-renders the name inputs
     });
-    // Expression path: requires a valid expression. Sets answer key, F=all X.
+    // Step 1 Continue: validate names + count, then commit and advance to Step 2.
     document.getElementById('continueBtn').addEventListener('click', () => {
       if (!validateStep1()) return;
-      const exprSrc = document.getElementById('exprInput').value.trim();
-      const errEl = document.getElementById('step1ExprErr');
-      errEl.textContent = '';
-      if (!exprSrc) {
-        errEl.textContent = 'Type an expression, or use 🎲 Random function, or switch to the Truth table path.';
-        return;
-      }
-      const tempVarNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
-      const r = KMapCore.parseExpression(exprSrc, tempVarNames);
-      if (!r.ok) { errEl.textContent = r.error; return; }
-
       cascadeChange(1);
       state.n = parseInt(document.getElementById('varCount').value, 10);
       state.kmapLayout = KMapCore.defaultLayout(state.n);
-      state.varNames = tempVarNames;
-      state.values = Array(1 << state.n).fill('X');
-      const evaluated = [];
-      for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
-      state.answerKey = { expression: exprSrc, evaluated };
-      state.step = 2;
-      renderAll();
-    });
-
-    // Truth-table path: empty F, no answer key.
-    document.getElementById('emptyTtBtn').addEventListener('click', () => {
-      if (!_commitStep1ForRandom()) return;
+      state.varNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
       state.values = Array(1 << state.n).fill('X');
       state.answerKey = null;
       state.truthTableVerified = false;
+      if (!state.startingPoint) state.startingPoint = 'expression';
+      state.step = 2;
       renderAll();
-    });
-
-    // Segmented "Starting point" toggle.
-    function setStartingPoint(path) {
-      const toggle = document.getElementById('startingPointToggle');
-      toggle.dataset.path = path;
-      toggle.querySelectorAll('.segmented-option').forEach(b => {
-        const isActive = b.dataset.path === path;
-        b.classList.toggle('is-active', isActive);
-        b.setAttribute('aria-selected', isActive ? 'true' : 'false');
-      });
-      document.getElementById('pathExpression').classList.toggle('is-hidden', path !== 'expression');
-      document.getElementById('pathTruthTable').classList.toggle('is-hidden', path !== 'truthtable');
-      // Clear any stale path-local error when switching paths.
-      const exprErr = document.getElementById('step1ExprErr');
-      if (exprErr) exprErr.textContent = '';
-    }
-    document.querySelectorAll('#startingPointToggle .segmented-option').forEach(btn => {
-      btn.addEventListener('click', () => setStartingPoint(btn.dataset.path));
     });
 
     function updateBreadcrumb() {
@@ -2252,9 +2283,6 @@
     updateBreadcrumb();
     showOnlyCurrentStep();
     updateNavButtons();
-    document.getElementById('randomFnBtn').addEventListener('click', practiceRandomFunction);
-    document.getElementById('randomTtBtn').addEventListener('click', practiceRandomTruthTable);
-
     // Stepper pills jump to a previously-reached step.
     document.querySelectorAll('#breadcrumb .stepper-item').forEach((item, i) => {
       item.addEventListener('click', () => goToStep(i + 1));
