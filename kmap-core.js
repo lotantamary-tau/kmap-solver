@@ -91,5 +91,184 @@
     return out;
   }
 
-  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects };
+  // ─── Boolean Expression Parser ───────────────────────────────────────────
+
+  function parseExpression(src, varNames) {
+    try {
+      if (!src || src.trim() === '') return { ok: false, error: 'empty expression' };
+
+      // Decide whether implicit AND is allowed (all var names are single char)
+      const useImplicitAnd = varNames.every(n => n.length === 1);
+
+      // Normalize text operators on word boundaries before tokenizing
+      let s = src;
+      s = s.replace(/\bAND\b/g, '*').replace(/\band\b/g, '*');
+      s = s.replace(/\bOR\b/g,  '+').replace(/\bor\b/g,  '+');
+      s = s.replace(/\bNOT\b/g, '!').replace(/\bnot\b/g, '!');
+
+      // ── Tokenizer ──────────────────────────────────────────────────────────
+      // Sort varNames by length descending for longest-match
+      const sortedVars = varNames.slice().sort((a, b) => b.length - a.length);
+
+      const tokens = [];
+      let pos = 0;
+      while (pos < s.length) {
+        // Skip whitespace
+        if (/\s/.test(s[pos])) { pos++; continue; }
+
+        // Try to match a variable name (longest-match)
+        let matched = false;
+        for (const name of sortedVars) {
+          if (s.startsWith(name, pos)) {
+            tokens.push({ type: 'VAR', name });
+            pos += name.length;
+            matched = true;
+            break;
+          }
+        }
+        if (matched) continue;
+
+        // Single-char tokens
+        const ch = s[pos];
+        if (ch === '+')      { tokens.push({ type: 'OP_OR' });        pos++; continue; }
+        if (ch === '*' || ch === '·') { tokens.push({ type: 'OP_AND' }); pos++; continue; }
+        if (ch === '!')      { tokens.push({ type: 'OP_NOT' });        pos++; continue; }
+        if (ch === '~')      { tokens.push({ type: 'OP_NOT' });        pos++; continue; }
+        if (ch === "'")      { tokens.push({ type: 'POSTFIX_NOT' });   pos++; continue; }
+        if (ch === '(')      { tokens.push({ type: 'LPAREN' });        pos++; continue; }
+        if (ch === ')')      { tokens.push({ type: 'RPAREN' });        pos++; continue; }
+        if (ch === '0')      { tokens.push({ type: 'CONST', value: 0 }); pos++; continue; }
+        if (ch === '1')      { tokens.push({ type: 'CONST', value: 1 }); pos++; continue; }
+
+        throw new Error('unknown variable: ' + ch);
+      }
+
+      // ── Recursive-descent parser ───────────────────────────────────────────
+      // Build index map for variable names
+      const varIndex = {};
+      varNames.forEach((name, i) => { varIndex[name] = i; });
+
+      let tpos = 0;
+
+      function peek() { return tokens[tpos]; }
+      function consume() { return tokens[tpos++]; }
+
+      function isFactorStart(tok) {
+        if (!tok) return false;
+        return tok.type === 'VAR' || tok.type === 'LPAREN' ||
+               tok.type === 'OP_NOT' || tok.type === 'CONST';
+      }
+
+      function parseExpr() {
+        let left = parseTerm();
+        while (peek() && peek().type === 'OP_OR') {
+          consume(); // eat '+'
+          const right = parseTerm();
+          left = { op: 'OR', args: [left, right] };
+        }
+        return left;
+      }
+
+      function parseTerm() {
+        let left = parseFactor();
+        while (true) {
+          const next = peek();
+          if (!next) break;
+          if (next.type === 'OP_AND') {
+            consume(); // eat explicit AND
+            const right = parseFactor();
+            left = { op: 'AND', args: [left, right] };
+          } else if (isFactorStart(next)) {
+            // Implicit AND
+            if (!useImplicitAnd) {
+              throw new Error('implicit AND not allowed with multi-character variable names');
+            }
+            const right = parseFactor();
+            left = { op: 'AND', args: [left, right] };
+          } else {
+            break;
+          }
+        }
+        return left;
+      }
+
+      function parseFactor() {
+        const tok = peek();
+        if (!tok) throw new Error('unexpected end of expression');
+
+        if (tok.type === 'OP_NOT') {
+          consume();
+          const arg = parseFactor();
+          return { op: 'NOT', arg };
+        }
+
+        return parseAtom();
+      }
+
+      function parseAtom() {
+        const tok = peek();
+        if (!tok) throw new Error('unexpected end of expression');
+
+        if (tok.type === 'CONST') {
+          consume();
+          return { op: 'CONST', value: tok.value };
+        }
+
+        if (tok.type === 'VAR') {
+          consume();
+          const idx = varIndex[tok.name];
+          if (idx === undefined) throw new Error('unknown variable: ' + tok.name);
+          let node = { op: 'VAR', index: idx };
+          // Handle postfix NOT (')
+          if (peek() && peek().type === 'POSTFIX_NOT') {
+            consume();
+            node = { op: 'NOT', arg: node };
+          }
+          return node;
+        }
+
+        if (tok.type === 'LPAREN') {
+          consume();
+          const inner = parseExpr();
+          if (!peek() || peek().type !== 'RPAREN') {
+            throw new Error('unbalanced parentheses: missing )');
+          }
+          consume(); // eat ')'
+          // Handle postfix NOT after closing paren
+          if (peek() && peek().type === 'POSTFIX_NOT') {
+            consume();
+            return { op: 'NOT', arg: inner };
+          }
+          return inner;
+        }
+
+        throw new Error('unexpected token: ' + tok.type);
+      }
+
+      const ast = parseExpr();
+
+      // Ensure all tokens consumed
+      if (tpos < tokens.length) {
+        const remaining = tokens[tpos];
+        throw new Error('unexpected token after expression: ' + JSON.stringify(remaining));
+      }
+
+      return { ok: true, ast };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  function evaluateExpr(ast, minterm, n) {
+    switch (ast.op) {
+      case 'CONST': return ast.value;
+      case 'VAR':   return (minterm >> (n - 1 - ast.index)) & 1;
+      case 'NOT':   return 1 - evaluateExpr(ast.arg, minterm, n);
+      case 'AND':   return ast.args.every(a => evaluateExpr(a, minterm, n) === 1) ? 1 : 0;
+      case 'OR':    return ast.args.some(a => evaluateExpr(a, minterm, n) === 1)  ? 1 : 0;
+      default: throw new Error('unknown AST node op: ' + ast.op);
+    }
+  }
+
+  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr };
 }));
