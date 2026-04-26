@@ -60,6 +60,7 @@
     }
     if (lits.length === 0) return mode === 'SOP' ? '1' : '0';
     if (mode === 'SOP') return lits.join('');
+    if (lits.length === 1) return lits[0];
     return '(' + lits.join('+') + ')';
   }
 
@@ -378,5 +379,29 @@
     }
   }
 
-  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr, generatePrimes, findMinimumCover };
+  function solve(values, n, mode, varNames) {
+    const targetVal = mode === 'SOP' ? 1 : 0;
+    const requiredMinterms = [];
+    const dontCares = [];
+    for (let m = 0; m < values.length; m++) {
+      if (values[m] === targetVal) requiredMinterms.push(m);
+      else if (values[m] === 'X') dontCares.push(m);
+    }
+    if (requiredMinterms.length === 0) {
+      return { expression: mode === 'SOP' ? '0' : '1', groups: [] };
+    }
+    const primes = findMinimumCover(requiredMinterms, dontCares, n);
+    const groups = primes.map((p, i) => {
+      const term = extractTerm(p.mask, p.dashes, n, varNames, mode);
+      const color = `hsl(${(i * 47) % 360}, 70%, 55%)`;
+      const rects = groupRects(p.mints, n);
+      return { minterms: p.mints.slice(), term, color, rects };
+    });
+    let expression;
+    if (mode === 'SOP') expression = groups.map(g => g.term).join(' + ');
+    else                expression = groups.map(g => g.term).join('·');
+    return { expression, groups };
+  }
+
+  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr, generatePrimes, findMinimumCover, solve };
 }));
