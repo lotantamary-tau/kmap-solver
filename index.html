@@ -127,16 +127,23 @@
     <div style="margin-top: 8px;">
       Names: <span class="name-inputs" id="nameInputs"></span>
     </div>
+    <div style="margin-top: 14px;">
+      <strong style="font-size: 13px;">Quick start (optional):</strong>
+      <div style="margin-top: 6px;">
+        <button id="randomFnBtn">🎲 Random function</button>
+        <span style="font-size: 12px; color: #888; margin-left: 4px;">— picks a random expression and puts it in the box below; F column stays empty for you to fill in (Check truth table works against it)</span>
+      </div>
+      <div style="margin-top: 6px;">
+        <button id="randomTtBtn">🎲 Random truth table</button>
+        <span style="font-size: 12px; color: #888; margin-left: 4px;">— fills the truth table with random 0/1 bits; no answer key (pure K-map practice)</span>
+      </div>
+    </div>
     <div style="margin-top: 12px;">
       <label>Expression (optional): <input id="exprInput" type="text" style="width: 320px;" placeholder="e.g. A'B + AC"></label>
       <div class="err" id="step1ExprErr"></div>
     </div>
     <div class="err" id="step1Err"></div>
-    <div style="margin-top: 12px; display: flex; align-items: center; gap: 12px;">
-      <button id="continueBtn">Continue</button>
-      <button id="randomFnBtn">🎲 Random function</button>
-      <span style="font-size: 12px; color: #888;">— skip Continue and load a random truth table for practice</span>
-    </div>
+    <button id="continueBtn" style="margin-top: 12px;">Continue</button>
   </section>
 
   <section id="step2" class="step disabled">
@@ -268,18 +275,15 @@
           && a.colVars.every((v, i) => v === b.colVars[i]);
     }
 
-    function practiceRandom() {
-      // Self-commits Step 1: validate, set state.n + varNames from inputs, then load a random function.
-      if (!validateStep1()) return;
+    function _commitStep1ForRandom() {
+      // Validate Step 1 and commit the variable count/names + reset all downstream state.
+      // Common setup for both random buttons. Lands the user at Step 2.
+      if (!validateStep1()) return false;
       state.n = parseInt(document.getElementById('varCount').value, 10);
       state.varNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
       state.kmapLayout = KMapCore.defaultLayout(state.n);
-      // Random 0/1 function (no don't-cares)
-      state.values = Array.from({ length: 1 << state.n }, () => Math.random() < 0.5 ? 0 : 1);
-      state.kmapDraft = state.values.slice();
-      state.kmapBuilt = true;
-      // Clear answer key + groups + verification — random functions don't have an expression
-      state.answerKey = null;
+      state.kmapDraft = null;
+      state.kmapBuilt = false;
       state.solverGroups = [];
       state.manualGroups = [];
       state.solveMode = null;
@@ -287,21 +291,43 @@
       state.solutionVerified = false;
       state.verifiedExpression = null;
       if (state.pendingSelection) state.pendingSelection.clear();
-      // Reset render flags
       state._step4Rendered = false;
       state._step5VerifyRendered = false;
       state._step6Rendered = false;
-      // Land on Step 3
-      state.step = 3;
+      state.step = 2;
       document.getElementById('step2').classList.remove('disabled');
-      document.getElementById('step3').classList.remove('disabled');
-      for (let i = 4; i <= 6; i++) {
+      for (let i = 3; i <= 6; i++) {
         const el = document.getElementById('step' + i);
         if (el) el.classList.add('disabled');
         const body = document.getElementById('step' + i + 'Body');
         if (body) body.innerHTML = '';
       }
-      // Also clear the expression input on Step 1 so the banner doesn't show a stale answer key
+      return true;
+    }
+
+    function practiceRandomFunction() {
+      // Pick a random non-trivial Boolean expression. Show it as if the user typed it.
+      // F column starts empty (X) — user fills it manually; answerKey enables Check truth table.
+      if (!_commitStep1ForRandom()) return;
+      let bits, sop;
+      let tries = 0;
+      do {
+        bits = Array.from({ length: 1 << state.n }, () => Math.random() < 0.5 ? 0 : 1);
+        sop = KMapCore.solve(bits, state.n, 'SOP', state.varNames);
+        tries++;
+      } while ((sop.expression === '0' || sop.expression === '1') && tries < 20);
+      state.values = Array(1 << state.n).fill('X');
+      state.answerKey = { expression: sop.expression, evaluated: bits };
+      const exprInput = document.getElementById('exprInput');
+      if (exprInput) exprInput.value = sop.expression;
+      renderAll();
+    }
+
+    function practiceRandomTruthTable() {
+      // Random 0/1 bits straight into the truth table. No expression / no answer key.
+      if (!_commitStep1ForRandom()) return;
+      state.values = Array.from({ length: 1 << state.n }, () => Math.random() < 0.5 ? 0 : 1);
+      state.answerKey = null;
       const exprInput = document.getElementById('exprInput');
       if (exprInput) exprInput.value = '';
       renderAll();
@@ -1388,7 +1414,8 @@
 
     renderNameInputs();
     updateBreadcrumb();
-    document.getElementById('randomFnBtn').addEventListener('click', practiceRandom);
+    document.getElementById('randomFnBtn').addEventListener('click', practiceRandomFunction);
+    document.getElementById('randomTtBtn').addEventListener('click', practiceRandomTruthTable);
 
     // CDN fallback check
     window.addEventListener('load', () => {
