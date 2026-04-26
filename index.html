@@ -109,8 +109,9 @@
     <span class="active">1. Variables</span>
     <span>→</span><span>2. Truth table</span>
     <span>→</span><span>3. K-map</span>
-    <span>→</span><span>4. Solve</span>
-    <span>→</span><span>5. Export</span>
+    <span>→</span><span>4. Group</span>
+    <span>→</span><span>5. Verify</span>
+    <span>→</span><span>6. Export</span>
   </div>
 
   <section id="step1" class="step">
@@ -150,17 +151,24 @@
   </section>
   <section id="step4" class="step disabled">
     <div class="step-header">
-      <h2>Step 4 — Solve</h2>
+      <h2>Step 4 — Group</h2>
       <a href="#" class="reset-link" data-step="4">Reset this step</a>
     </div>
     <div id="step4Body"></div>
   </section>
   <section id="step5" class="step disabled">
     <div class="step-header">
-      <h2>Step 5 — Export</h2>
+      <h2>Step 5 — Check your solution</h2>
       <a href="#" class="reset-link" data-step="5">Reset this step</a>
     </div>
     <div id="step5Body"></div>
+  </section>
+  <section id="step6" class="step disabled">
+    <div class="step-header">
+      <h2>Step 6 — Export</h2>
+      <a href="#" class="reset-link" data-step="6">Reset this step</a>
+    </div>
+    <div id="step6Body"></div>
   </section>
 
   <div id="errBar" style="position: fixed; bottom: 16px; right: 16px; background: #c00; color: #fff; padding: 8px 14px; border-radius: 4px; font-size: 13px; display: none; z-index: 100; max-width: 300px;"></div>
@@ -193,10 +201,14 @@
       manualMode: false, pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
       _step4Rendered: false,
-      _step5Rendered: false,
+      _step5VerifyRendered: false,
+      _step6Rendered: false,
       _exportReady: true,
       dragging: null,
       _suppressClick: false,
+      solutionVerified: false,
+      solverExpression: null,
+      verifiedExpression: null,
     };
 
     function renderExprBanner(bodyId) {
@@ -257,11 +269,9 @@
       document.getElementById('checkTtBtn').addEventListener('click', checkTruthTable);
       document.getElementById('buildKmapBtn').addEventListener('click', () => {
         state.kmapBuilt = true;
-        state.step = 5;
+        state.step = 3;
         state.kmapDraft = Array(1 << state.n).fill(null);
         document.getElementById('step3').classList.remove('disabled');
-        document.getElementById('step4').classList.remove('disabled');
-        document.getElementById('step5').classList.remove('disabled');
         renderAll();
       });
     }
@@ -270,6 +280,8 @@
       const cur = state.values[m];
       state.values[m] = cur === 0 ? 1 : cur === 1 ? 'X' : 0;
       state.solverGroups = [];
+      state.solutionVerified = false;
+      state.verifiedExpression = null;
       renderAll();
     }
 
@@ -284,9 +296,15 @@
         renderOverlays();
       }
       if (state.step >= 5) {
-        if (!state._step5Rendered) {
-          renderStep5();
-          state._step5Rendered = true;
+        if (!state._step5VerifyRendered) {
+          renderVerify();
+          state._step5VerifyRendered = true;
+        }
+      }
+      if (state.step >= 6) {
+        if (!state._step6Rendered) {
+          renderStep6();
+          state._step6Rendered = true;
         }
       }
       updateBreadcrumb();
@@ -297,14 +315,13 @@
       body.innerHTML = '';
       renderExprBanner('step4Body');
 
-      // Default to manual mode
+      // Enable manual mode when Step 4 opens
       state.manualMode = true;
 
       body.insertAdjacentHTML('beforeend', `
         <div id="manualSection">
           <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
             <strong>Manual grouping</strong>
-            <a href="#" class="edit-link" id="editValuesLink" title="Toggle to edit K-map cell values">&#9998; Edit cell values instead</a>
           </div>
           <div id="manualPanel"></div>
         </div>
@@ -314,7 +331,6 @@
           <button id="solvePosBtn">Solve 0s (POS)</button>
           <button id="clearBtn">Clear</button>
           <button id="randomBtn">Random</button>
-          <div id="resultExpr" style="margin-top: 12px; font-family: monospace; font-size: 16px;"></div>
         </div>
       `);
 
@@ -322,15 +338,6 @@
       document.getElementById('solvePosBtn').addEventListener('click', () => doSolve('POS'));
       document.getElementById('clearBtn').addEventListener('click', clearMap);
       document.getElementById('randomBtn').addEventListener('click', randomFill);
-      document.getElementById('editValuesLink').addEventListener('click', e => {
-        e.preventDefault();
-        state.manualMode = !state.manualMode;
-        state.pendingSelection.clear();
-        updatePendingHighlight();
-        e.target.classList.toggle('active', !state.manualMode);
-        e.target.textContent = state.manualMode ? '✎ Edit cell values instead' : '✓ Now editing cell values — click to switch back to grouping';
-        document.getElementById('manualPanel').style.display = state.manualMode ? 'block' : 'none';
-      });
 
       // Render manual panel by default since manualMode is on
       renderManualPanel();
@@ -340,7 +347,11 @@
       state.solveMode = mode;
       const r = KMapCore.solve(state.values, state.n, mode, state.varNames);
       state.solverGroups = r.groups.map((g, i) => ({ ...g, color: paletteColor(i) }));
-      document.getElementById('resultExpr').textContent = `F = ${r.expression}`;
+      state.solverExpression = r.expression;
+      // Result expression revealed only after Step 5 verification.
+      state.solutionVerified = false;
+      state.verifiedExpression = null;
+      state._step5VerifyRendered = false;
       renderOverlays();
     }
 
@@ -373,8 +384,8 @@
           div.style.borderColor = g.color;
           div.style.backgroundColor = withAlpha(g.color, 0.18);
           div.title = g.term;
-          // Show label only on the first rect of the group (avoid duplicate labels for wrap groups)
-          if (ri === 0) {
+          // Show label only on the first rect of the group AND only when verified
+          if (ri === 0 && state.solutionVerified) {
             const label = document.createElement('span');
             label.className = 'rect-label';
             label.style.color = g.color;
@@ -393,8 +404,9 @@
       if (state.kmapDraft) state.kmapDraft.fill(null);
       state.solverGroups = [];
       state.manualGroups = [];
-      const re = document.getElementById('resultExpr');
-      if (re) re.textContent = '';
+      state.solutionVerified = false;
+      state.verifiedExpression = null;
+      state._step5VerifyRendered = false;
       renderAll();
     }
 
@@ -402,6 +414,9 @@
       for (let i = 0; i < state.values.length; i++) state.values[i] = Math.random() < 0.5 ? 0 : 1;
       if (state.kmapDraft) for (let i = 0; i < state.kmapDraft.length; i++) state.kmapDraft[i] = state.values[i];
       state.solverGroups = [];
+      state.solutionVerified = false;
+      state.verifiedExpression = null;
+      state._step5VerifyRendered = false;
       renderAll();
     }
 
@@ -461,14 +476,17 @@
         chip.className = 'group-chip';
         chip.style.borderColor = g.color;
         chip.dataset.groupIndex = String(state.solverGroups.length + idx);  // overlay groups are indexed solver-then-manual
+        const termLabel = state.solutionVerified ? g.term : `Group ${idx + 1}`;
         chip.innerHTML = `
           <span class="swatch" style="background: ${g.color}"></span>
-          <span class="term">${g.term}</span>
+          <span class="term">${termLabel}</span>
           <span class="remove" data-idx="${idx}">&#215;</span>
         `;
         chip.querySelector('.remove').addEventListener('click', e => {
           e.stopPropagation();
           state.manualGroups.splice(idx, 1);
+          state.solutionVerified = false;
+          state.verifiedExpression = null;
           renderManualGroupList();
           renderOverlays();
         });
@@ -509,6 +527,8 @@
         andMask: cube.andMask, freeBits: cube.freeBits,
       });
       state.pendingSelection.clear();
+      state.solutionVerified = false;
+      state.verifiedExpression = null;
       updatePendingHighlight();
       renderManualGroupList();
       renderOverlays();
@@ -584,10 +604,76 @@
       out.textContent = lines.join('\n');
     }
 
-    function renderStep5() {
+    function renderVerify() {
       const body = document.getElementById('step5Body');
       body.innerHTML = '';
       renderExprBanner('step5Body');
+      body.insertAdjacentHTML('beforeend', `
+        <p style="margin: 4px 0; color: #666; font-size: 14px;">Type the simplified Boolean expression you read off your K-map grouping. The app will compare it logically to F. If correct, each group's term will be revealed.</p>
+        <div style="margin-top: 8px;">
+          <input id="verifyInput" type="text" style="width: 320px;" placeholder="e.g. A + BC'D'">
+          <button id="verifyBtn">Check</button>
+          <button id="continueExportBtn" disabled>Continue to export →</button>
+        </div>
+        <div id="verifyResult" style="margin-top: 10px; font-size: 14px; white-space: pre-line;"></div>
+      `);
+      document.getElementById('verifyBtn').addEventListener('click', verifyUserExpression);
+      document.getElementById('continueExportBtn').addEventListener('click', () => {
+        state.step = 6;
+        document.getElementById('step6').classList.remove('disabled');
+        renderAll();
+      });
+      // If already verified, restore that state visually
+      if (state.solutionVerified) {
+        document.getElementById('continueExportBtn').disabled = false;
+        document.getElementById('verifyResult').textContent = '✓ Correct! Group terms revealed below.';
+        document.getElementById('verifyResult').style.color = '#0a0';
+      }
+    }
+
+    function verifyUserExpression() {
+      const src = document.getElementById('verifyInput').value.trim();
+      const out = document.getElementById('verifyResult');
+      if (!src) { out.style.color = '#c00'; out.textContent = 'Please type an expression.'; return; }
+      const r = KMapCore.parseExpression(src, state.varNames);
+      if (!r.ok) { out.style.color = '#c00'; out.textContent = 'Parse error: ' + r.error; return; }
+      // Compare evaluated expression vs state.values for every minterm.
+      // Treat 'X' (don't-care) cells as "either is acceptable" (don't compare).
+      const total = state.values.length;
+      let firstMismatch = null;
+      for (let m = 0; m < total; m++) {
+        const expected = state.values[m];
+        if (expected === 'X') continue;
+        const actual = KMapCore.evaluateExpr(r.ast, m, state.n);
+        if (actual !== expected) { firstMismatch = m; break; }
+      }
+      if (firstMismatch !== null) {
+        out.style.color = '#c00';
+        out.textContent = `✗ Not equivalent. Your expression evaluates differently at minterm m=${firstMismatch} (you said ${KMapCore.evaluateExpr(r.ast, firstMismatch, state.n)}, but F(m=${firstMismatch}) = ${state.values[firstMismatch]}).\nTry again.`;
+        return;
+      }
+      // Correct
+      state.solutionVerified = true;
+      state.verifiedExpression = src;
+      out.style.color = '#0a0';
+      // Show what the user typed plus the per-group terms
+      const groupTerms = [...state.solverGroups, ...state.manualGroups].map((g, i) => `  • Group ${i+1} (${g.color}): ${g.term}`).join('\n');
+      const haveAuto = state.solverGroups.length > 0;
+      const autoExpr = haveAuto ? state.solverGroups.map(g => g.term).join(' + ') : null;
+      let body = `✓ Correct! F = ${src}`;
+      if (autoExpr && autoExpr !== src) body += `\n   (Solver's minimal form: ${autoExpr})`;
+      if (groupTerms) body += `\n\nGroup terms:\n${groupTerms}`;
+      out.textContent = body;
+      document.getElementById('continueExportBtn').disabled = false;
+      // Re-render overlays + chips so terms appear
+      renderOverlays();
+      renderManualGroupList();
+    }
+
+    function renderStep6() {
+      const body = document.getElementById('step6Body');
+      body.innerHTML = '';
+      renderExprBanner('step6Body');
       body.insertAdjacentHTML('beforeend', `
         <button id="dlPngBtn">Download PNG</button>
         <button id="dlPdfBtn">Download PDF</button>
@@ -609,9 +695,9 @@
       const step3 = document.getElementById('step3');
       const c2 = await window.html2canvas(step2, { scale: 2, backgroundColor: '#ffffff' });
       const c3 = await window.html2canvas(step3, { scale: 2, backgroundColor: '#ffffff' });
-      const resultExpr = document.getElementById('resultExpr');
+      const exprText = state.verifiedExpression || state.solverExpression;
       let cExpr = null;
-      if (resultExpr && resultExpr.textContent.trim()) {
+      if (exprText) {
         const tmp = document.createElement('div');
         tmp.style.padding = '12px 20px';
         tmp.style.background = '#fff';
@@ -620,7 +706,7 @@
         tmp.style.position = 'fixed';
         tmp.style.left = '-10000px';
         tmp.style.top = '0';
-        tmp.textContent = resultExpr.textContent;
+        tmp.textContent = `F = ${exprText}`;
         document.body.appendChild(tmp);
         cExpr = await window.html2canvas(tmp, { scale: 2, backgroundColor: '#ffffff' });
         document.body.removeChild(tmp);
@@ -786,6 +872,14 @@
       body.appendChild(ctrls);
       document.getElementById('autoFillKmapBtn').addEventListener('click', autoFillKmap);
       document.getElementById('checkKmapBtn').addEventListener('click', checkKmap);
+      ctrls.insertAdjacentHTML('beforeend', `
+        <button id="continueGroupingBtn" style="margin-left: 24px;">Continue to grouping →</button>
+      `);
+      document.getElementById('continueGroupingBtn').addEventListener('click', () => {
+        state.step = 4;
+        document.getElementById('step4').classList.remove('disabled');
+        renderAll();
+      });
     }
 
     function cycleKmap(m) {
@@ -801,6 +895,8 @@
       else if (cur === 0) state.kmapDraft[m] = 1;
       else if (cur === 1) state.kmapDraft[m] = 'X';
       else state.kmapDraft[m] = 0;
+      state.solutionVerified = false;
+      state.verifiedExpression = null;
       renderAll();
     }
 
@@ -907,8 +1003,8 @@
     function updateBreadcrumb() {
       const labels = document.querySelectorAll('#breadcrumb span');
       // Spans alternate label, arrow, label, arrow, ...
-      // Indices 0, 2, 4, 6, 8 = step labels for steps 1..5
-      for (let i = 0; i < 5; i++) {
+      // Indices 0, 2, 4, 6, 8, 10 = step labels for steps 1..6
+      for (let i = 0; i < 6; i++) {
         const span = labels[i * 2];
         if (!span) continue;
         span.classList.toggle('active', state.step === i + 1);
@@ -920,11 +1016,13 @@
       if (s <= 2) { state.values = state.n ? Array(1 << state.n).fill('X') : []; state.answerKey = null; }
       if (s <= 3) { state.kmapDraft = null; state.kmapBuilt = false; }
       if (s <= 4) { state.solverGroups = []; state.manualGroups = []; state.manualMode = false; state.pendingSelection.clear(); state.solveMode = null; }
+      if (s <= 5) { state.solutionVerified = false; state.verifiedExpression = null; }
       state._step4Rendered = false;
-      state._step5Rendered = false;
+      state._step5VerifyRendered = false;
+      state._step6Rendered = false;
       state.step = Math.max(1, s - 1);
       // Reset visual disabled state
-      for (let i = s; i <= 5; i++) {
+      for (let i = s; i <= 6; i++) {
         const el = document.getElementById('step' + i);
         if (el) el.classList.add('disabled');
         const body = document.getElementById('step' + i + 'Body');
@@ -952,7 +1050,7 @@
       if (missing.length) {
         state._exportReady = false;
         showError('Export libs failed to load: ' + missing.join(', ') + '. Check your internet connection. Other features still work.');
-        // If Step 5 is already visible, disable its buttons
+        // If Step 6 is already visible, disable its buttons
         const png = document.getElementById('dlPngBtn'), pdf = document.getElementById('dlPdfBtn');
         if (png) png.disabled = true;
         if (pdf) pdf.disabled = true;
