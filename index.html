@@ -621,24 +621,42 @@
       to   { opacity: 1; transform: translateY(0); }
     }
     .path-panel #exprInput { width: 320px; max-width: 100%; font-family: var(--font-mono); }
-    .path-hint {
-      font-size: 12.5px;
-      color: var(--text-3);
-      margin: 8px 0 14px;
-      line-height: 1.5;
-    }
     .path-actions {
       display: flex;
-      align-items: center;
-      gap: 10px;
+      align-items: flex-start;
+      gap: 12px;
       flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .action-card {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-width: 260px;
+    }
+    .action-caption {
+      font-size: 12px;
+      color: var(--text-3);
+      line-height: 1.45;
+      padding: 0 4px;
     }
     .or-divider {
       font-size: 12px;
       color: var(--text-3);
       letter-spacing: 0.04em;
       text-transform: lowercase;
-      padding: 0 4px;
+      padding: 11px 4px 0;
+    }
+    .path-note {
+      margin-top: 18px;
+      padding: 10px 14px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      color: var(--text-2);
+      line-height: 1.55;
     }
 
     /* Treat the path-panel "Continue" buttons and Random as primary/secondary */
@@ -724,21 +742,33 @@
         <input id="exprInput" type="text" placeholder="e.g. A'B + AC" autocomplete="off">
       </div>
       <div class="err" id="step1ExprErr"></div>
-      <p class="path-hint">F column starts empty in Step 2 — fill it manually with the answer key locked in for Check.</p>
       <div class="path-actions">
-        <button id="continueBtn" type="button">Continue with this expression →</button>
+        <div class="action-card">
+          <button id="continueBtn" type="button">Continue with this expression →</button>
+          <span class="action-caption">Uses what you typed above.</span>
+        </div>
         <span class="or-divider">or</span>
-        <button id="randomFnBtn" type="button">🎲 Random function</button>
+        <div class="action-card">
+          <button id="randomFnBtn" type="button">🎲 Random function</button>
+          <span class="action-caption">Lets the app pick a random expression for you.</span>
+        </div>
       </div>
+      <p class="path-note">In Step 2 you'll fill in the truth table's answers yourself. The Check button tells you if you got them right.</p>
     </div>
 
     <div class="path-panel is-hidden" id="pathTruthTable">
-      <p class="path-hint">Fill the truth table from scratch — no answer key, pure K-map practice.</p>
       <div class="path-actions">
-        <button id="emptyTtBtn" type="button">Start with empty truth table →</button>
+        <div class="action-card">
+          <button id="emptyTtBtn" type="button">Start with empty truth table →</button>
+          <span class="action-caption">F column starts blank.</span>
+        </div>
         <span class="or-divider">or</span>
-        <button id="randomTtBtn" type="button">🎲 Random truth table</button>
+        <div class="action-card">
+          <button id="randomTtBtn" type="button">🎲 Random truth table</button>
+          <span class="action-caption">F is filled with random 0s and 1s.</span>
+        </div>
       </div>
+      <p class="path-note">There's no formula behind the table, so the Check button is off in Step 2. You can still practice the K-map and grouping steps.</p>
     </div>
   </section>
 
