@@ -705,66 +705,39 @@
       renderManualGroupList();
     }
 
-    function renderStep6() {
-      const body = document.getElementById('step6Body');
-      body.innerHTML = '';
-      renderExprBanner('step6Body');
-      body.insertAdjacentHTML('beforeend', `
-        <button id="dlPngBtn">Download PNG</button>
-        <button id="dlPdfBtn">Download PDF</button>
-        <span class="err" id="exportErr" style="margin-left: 12px;"></span>
-      `);
-      document.getElementById('dlPngBtn').addEventListener('click', downloadPng);
-      document.getElementById('dlPdfBtn').addEventListener('click', downloadPdf);
-      if (!state._exportReady) {
-        document.getElementById('dlPngBtn').disabled = true;
-        document.getElementById('dlPdfBtn').disabled = true;
-      }
+    async function snapshotTruthTable() {
+      if (typeof window.html2canvas !== 'function') throw new Error('Export libs failed to load — check your internet connection.');
+      const tbl = document.querySelector('#step2Body table.truthTable');
+      if (!tbl) throw new Error('Truth table not built yet.');
+      return window.html2canvas(tbl, { scale: 2, backgroundColor: '#ffffff' });
     }
 
-    async function snapshotSections() {
-      if (typeof window.html2canvas !== 'function') {
-        throw new Error('Export libs failed to load — check your internet connection.');
-      }
-      const step2 = document.getElementById('step2');
-      const step3 = document.getElementById('step3');
-      const c2 = await window.html2canvas(step2, { scale: 2, backgroundColor: '#ffffff' });
-      const c3 = await window.html2canvas(step3, { scale: 2, backgroundColor: '#ffffff' });
-      const exprText = state.verifiedExpression || state.solverExpression;
-      let cExpr = null;
-      if (exprText) {
-        const tmp = document.createElement('div');
-        tmp.style.padding = '12px 20px';
-        tmp.style.background = '#fff';
-        tmp.style.fontFamily = 'monospace';
-        tmp.style.fontSize = '20px';
-        tmp.style.position = 'fixed';
-        tmp.style.left = '-10000px';
-        tmp.style.top = '0';
-        tmp.textContent = `F = ${exprText}`;
-        document.body.appendChild(tmp);
-        cExpr = await window.html2canvas(tmp, { scale: 2, backgroundColor: '#ffffff' });
-        document.body.removeChild(tmp);
-      }
-      const w = Math.max(c2.width, c3.width, cExpr ? cExpr.width : 0);
-      const h = c2.height + c3.height + (cExpr ? cExpr.height : 0);
-      const out = document.createElement('canvas');
-      out.width = w; out.height = h;
-      const ctx = out.getContext('2d');
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, w, h);
-      let y = 0;
-      ctx.drawImage(c2, 0, y); y += c2.height;
-      ctx.drawImage(c3, 0, y); y += c3.height;
-      if (cExpr) ctx.drawImage(cExpr, 0, y);
-      return out;
+    async function snapshotKmap() {
+      if (typeof window.html2canvas !== 'function') throw new Error('Export libs failed to load — check your internet connection.');
+      const km = document.querySelector('#step3Body .kmap');
+      if (!km) throw new Error('K-map not built yet.');
+      return window.html2canvas(km, { scale: 2, backgroundColor: '#ffffff' });
     }
 
-    async function downloadPng() {
+    async function downloadTruthTablePng() {
       const errEl = document.getElementById('exportErr');
       errEl.textContent = '';
       try {
-        const canvas = await snapshotSections();
+        const canvas = await snapshotTruthTable();
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = `truth-table-${state.varNames.join('')}.png`;
+        a.click();
+      } catch (e) {
+        errEl.textContent = e.message || 'Export failed.';
+      }
+    }
+
+    async function downloadKmapPng() {
+      const errEl = document.getElementById('exportErr');
+      errEl.textContent = '';
+      try {
+        const canvas = await snapshotKmap();
         const a = document.createElement('a');
         a.href = canvas.toDataURL('image/png');
         a.download = `kmap-${state.varNames.join('')}.png`;
@@ -779,14 +752,62 @@
       errEl.textContent = '';
       try {
         if (!window.jspdf) throw new Error('Export libs failed to load — check your internet connection.');
-        const canvas = await snapshotSections();
-        const img = canvas.toDataURL('image/png');
+        const tt = await snapshotTruthTable();
+        const km = await snapshotKmap();
+        const expr = state.verifiedExpression || state.solverExpression || '?';
+        const title = `F(${state.varNames.join(',')}) = ${expr}`;
+
+        const scale = 2; // matches html2canvas scale
+        const padding = 30 * scale;
+        const titleSize = 28 * scale;
+        const titleHeight = titleSize * 1.6;
+        const gap = 40 * scale;
+
+        const contentW = tt.width + gap + km.width;
+        const w = padding * 2 + contentW;
+        const h = padding * 2 + titleHeight + Math.max(tt.height, km.height);
+
+        const composite = document.createElement('canvas');
+        composite.width = w;
+        composite.height = h;
+        const ctx = composite.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${titleSize}px ui-monospace, "SF Mono", "Cascadia Mono", monospace`;
+        ctx.textBaseline = 'top';
+        ctx.fillText(title, padding, padding);
+        const contentTop = padding + titleHeight;
+        ctx.drawImage(tt, padding, contentTop);
+        ctx.drawImage(km, padding + tt.width + gap, contentTop);
+
+        const img = composite.toDataURL('image/png');
         const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({ unit: 'pt', format: [canvas.width, canvas.height] });
-        pdf.addImage(img, 'PNG', 0, 0, canvas.width, canvas.height);
+        const pdf = new jsPDF({ unit: 'pt', format: [composite.width / scale, composite.height / scale] });
+        pdf.addImage(img, 'PNG', 0, 0, composite.width / scale, composite.height / scale);
         pdf.save(`kmap-${state.varNames.join('')}.pdf`);
       } catch (e) {
         errEl.textContent = e.message || 'Export failed.';
+      }
+    }
+
+    function renderStep6() {
+      const body = document.getElementById('step6Body');
+      body.innerHTML = '';
+      renderExprBanner('step6Body');
+      body.insertAdjacentHTML('beforeend', `
+        <button id="dlTtPngBtn">Download Truth Table PNG</button>
+        <button id="dlKmapPngBtn" style="margin-left: 8px;">Download K-map PNG</button>
+        <button id="dlPdfBtn" style="margin-left: 8px;">Download PDF</button>
+        <span class="err" id="exportErr" style="margin-left: 12px;"></span>
+      `);
+      document.getElementById('dlTtPngBtn').addEventListener('click', downloadTruthTablePng);
+      document.getElementById('dlKmapPngBtn').addEventListener('click', downloadKmapPng);
+      document.getElementById('dlPdfBtn').addEventListener('click', downloadPdf);
+      if (!state._exportReady) {
+        document.getElementById('dlTtPngBtn').disabled = true;
+        document.getElementById('dlKmapPngBtn').disabled = true;
+        document.getElementById('dlPdfBtn').disabled = true;
       }
     }
 
@@ -1086,8 +1107,11 @@
         state._exportReady = false;
         showError('Export libs failed to load: ' + missing.join(', ') + '. Check your internet connection. Other features still work.');
         // If Step 6 is already visible, disable its buttons
-        const png = document.getElementById('dlPngBtn'), pdf = document.getElementById('dlPdfBtn');
-        if (png) png.disabled = true;
+        const ttPng = document.getElementById('dlTtPngBtn');
+        const kmPng = document.getElementById('dlKmapPngBtn');
+        const pdf = document.getElementById('dlPdfBtn');
+        if (ttPng) ttPng.disabled = true;
+        if (kmPng) kmPng.disabled = true;
         if (pdf) pdf.disabled = true;
       }
     });
