@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>K-Map Solver</title>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="kmap-core.js"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    h1 { margin: 0 0 8px; }
+    .step { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-top: 16px; }
+    .step.disabled { opacity: 0.5; pointer-events: none; }
+    .breadcrumb { display: flex; gap: 8px; font-size: 13px; color: #666; margin-bottom: 12px; }
+    .breadcrumb .active { color: #000; font-weight: 600; }
+    .name-inputs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .name-inputs input { width: 60px; padding: 4px; }
+    .err { color: #c00; font-size: 13px; margin-top: 4px; }
+    button { padding: 6px 12px; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <h1>K-Map Solver</h1>
+  <div class="breadcrumb" id="breadcrumb">
+    <span class="active">1. Variables</span>
+    <span>→</span><span>2. Truth table</span>
+    <span>→</span><span>3. K-map</span>
+    <span>→</span><span>4. Solve</span>
+    <span>→</span><span>5. Export</span>
+  </div>
+
+  <section id="step1" class="step">
+    <h2>Step 1 — Variables</h2>
+    <label>How many variables?
+      <select id="varCount">
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+      </select>
+    </label>
+    <div style="margin-top: 8px;">
+      Names: <span class="name-inputs" id="nameInputs"></span>
+    </div>
+    <div class="err" id="step1Err"></div>
+    <button id="continueBtn" style="margin-top: 12px;">Continue</button>
+  </section>
+
+  <section id="step2" class="step disabled"><h2>Step 2 — Truth table</h2><div id="step2Body"></div></section>
+  <section id="step3" class="step disabled"><h2>Step 3 — K-map</h2><div id="step3Body"></div></section>
+  <section id="step4" class="step disabled"><h2>Step 4 — Solve</h2><div id="step4Body"></div></section>
+  <section id="step5" class="step disabled"><h2>Step 5 — Export</h2><div id="step5Body"></div></section>
+
+  <script>
+    'use strict';
+    const RESERVED = new Set(['AND','OR','NOT','and','or','not']);
+    const state = {
+      n: null, varNames: [], values: [], step: 1, kmapBuilt: false,
+      answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
+      manualMode: false, pendingSelection: new Set(),
+    };
+
+    function renderNameInputs() {
+      const n = parseInt(document.getElementById('varCount').value, 10);
+      const wrap = document.getElementById('nameInputs');
+      const defaults = ['A','B','C','D'];
+      wrap.innerHTML = '';
+      for (let i = 0; i < n; i++) {
+        const inp = document.createElement('input');
+        inp.value = defaults[i];
+        inp.maxLength = 4;
+        inp.dataset.idx = i;
+        inp.addEventListener('input', validateStep1);
+        wrap.appendChild(inp);
+      }
+      validateStep1();
+    }
+
+    function validateStep1() {
+      const inputs = [...document.querySelectorAll('#nameInputs input')];
+      const names = inputs.map(i => i.value.trim());
+      const errEl = document.getElementById('step1Err');
+      let err = '';
+      if (names.some(s => s === '')) err = 'All names are required.';
+      else if (names.some(s => !/^[A-Za-z][A-Za-z0-9]*$/.test(s))) err = 'Names must start with a letter and be alphanumeric.';
+      else if (new Set(names).size !== names.length) err = 'Names must be unique.';
+      else if (names.some(s => RESERVED.has(s))) err = 'Names cannot be AND, OR, or NOT.';
+      errEl.textContent = err;
+      document.getElementById('continueBtn').disabled = !!err;
+      return !err;
+    }
+
+    document.getElementById('varCount').addEventListener('change', renderNameInputs);
+    document.getElementById('continueBtn').addEventListener('click', () => {
+      if (!validateStep1()) return;
+      state.n = parseInt(document.getElementById('varCount').value, 10);
+      state.varNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
+      state.values = Array(1 << state.n).fill(0);
+      state.step = 2;
+      document.getElementById('step2').classList.remove('disabled');
+      // Subsequent steps render Step 2 body (Task 9 implements).
+    });
+
+    renderNameInputs();
+  </script>
+</body>
+</html>
