@@ -198,7 +198,7 @@
     const state = {
       n: null, varNames: [], values: [], step: 1, kmapBuilt: false,
       answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
-      manualMode: false, pendingSelection: new Set(),
+      pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
       _step4Rendered: false,
       _step5VerifyRendered: false,
@@ -289,10 +289,8 @@
       if (state.step >= 2) renderTruthTable();
       if (state.step >= 3) renderKmap();
       if (state.step >= 4) {
-        if (!state._step4Rendered) {
-          renderStep4();
-          state._step4Rendered = true;
-        }
+        if (!state._step4Rendered) { renderStep4(); state._step4Rendered = true; }
+        renderKmapStep4();
         renderOverlays();
       }
       if (state.step >= 5) {
@@ -315,10 +313,8 @@
       body.innerHTML = '';
       renderExprBanner('step4Body');
 
-      // Enable manual mode when Step 4 opens
-      state.manualMode = true;
-
       body.insertAdjacentHTML('beforeend', `
+        <div id="step4KmapContainer" style="margin-bottom: 16px;"></div>
         <div id="manualSection">
           <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
             <strong>Manual grouping</strong>
@@ -330,16 +326,13 @@
           <button id="solveSopBtn">Solve 1s (SOP)</button>
           <button id="solvePosBtn">Solve 0s (POS)</button>
           <button id="clearBtn">Clear</button>
-          <button id="randomBtn">Random</button>
         </div>
       `);
 
       document.getElementById('solveSopBtn').addEventListener('click', () => doSolve('SOP'));
       document.getElementById('solvePosBtn').addEventListener('click', () => doSolve('POS'));
       document.getElementById('clearBtn').addEventListener('click', clearMap);
-      document.getElementById('randomBtn').addEventListener('click', randomFill);
 
-      // Render manual panel by default since manualMode is on
       renderManualPanel();
     }
 
@@ -361,7 +354,7 @@
       overlay.innerHTML = '';
       const all = [...state.solverGroups, ...state.manualGroups];
       if (all.length === 0) return;
-      const cells = document.querySelectorAll('#step3Body .kmap-cell[data-minterm]');
+      const cells = document.querySelectorAll('#step4KmapContainer .kmap-cell[data-minterm]');
       const cellRects = {};
       cells.forEach(cell => {
         const m = +cell.dataset.minterm;
@@ -418,19 +411,6 @@
       state.verifiedExpression = null;
       state._step5VerifyRendered = false;
       renderAll();
-    }
-
-    function toggleManualMode(e) {
-      state.manualMode = e.target.checked;
-      state.pendingSelection.clear();
-      updatePendingHighlight();
-      const panel = document.getElementById('manualPanel');
-      if (state.manualMode) {
-        panel.style.display = 'block';
-        renderManualPanel();
-      } else {
-        panel.style.display = 'none';
-      }
     }
 
     function renderManualPanel() {
@@ -811,16 +791,14 @@
       }
     }
 
-    function renderKmap() {
-      if (!state.kmapBuilt) return;
-      const body = document.getElementById('step3Body');
-      body.innerHTML = '';
-      renderExprBanner('step3Body');
+    function buildKmapElement(mode) {
       const { rows, cols } = KMapCore.rowsCols(state.n);
-      const wrap = document.createElement('div'); wrap.className = 'kmap';
+      const wrap = document.createElement('div');
+      wrap.className = 'kmap';
+      wrap.dataset.mode = mode;
       const grid = document.createElement('div');
 
-      // Header row: corner + column bit labels
+      // Header row
       const top = document.createElement('div'); top.className = 'kmap-row';
       const corner = document.createElement('div'); corner.className = 'kmap-cell kmap-header';
       const labelMSB = state.n >= 3 ? state.varNames.slice(0, state.n - 2).join('') : '';
@@ -846,24 +824,28 @@
           const m = KMapCore.cellToMinterm(r, c, state.n);
           const cell = document.createElement('div'); cell.className = 'kmap-cell';
           cell.dataset.minterm = m;
-          const v = state.kmapDraft[m];
+          const v = state.kmapDraft ? state.kmapDraft[m] : null;
           const display = v === null ? '' : String(v);
           cell.innerHTML = `<span class="mint">${m}</span>${display}`;
           if (v === 'X') cell.classList.add('x');
-          cell.addEventListener('click', () => cycleKmap(m));
+          if (mode === 'edit') cell.addEventListener('click', () => cycleEditCell(m));
+          else cell.addEventListener('click', () => toggleGroupCell(m));
           row.appendChild(cell);
         }
         grid.appendChild(row);
       }
       wrap.appendChild(grid);
 
-      // Overlay layer (used by Task 12 for group rendering)
-      const overlay = document.createElement('div'); overlay.className = 'kmap-overlay'; overlay.id = 'kmapOverlay';
-      wrap.appendChild(overlay);
-      body.appendChild(wrap);
+      // Overlay only on grouping K-map
+      if (mode === 'group') {
+        const overlay = document.createElement('div'); overlay.className = 'kmap-overlay'; overlay.id = 'kmapOverlay';
+        wrap.appendChild(overlay);
+        wireDragSelect(wrap);
+      }
+      return wrap;
+    }
 
-      // Drag-to-select wiring (only active when state.manualMode is true)
-      const wrap2 = wrap; // the .kmap div from earlier in renderKmap
+    function wireDragSelect(wrap) {
       function getCellMinterm(target) {
         const c = target.closest('.kmap-cell[data-minterm]');
         return c ? +c.dataset.minterm : null;
@@ -878,22 +860,21 @@
         return cells;
       }
       function setDragPreview(m1, m2) {
-        document.querySelectorAll('#step3Body .kmap-cell.dragging').forEach(c => c.classList.remove('dragging'));
+        wrap.querySelectorAll('.kmap-cell.dragging').forEach(c => c.classList.remove('dragging'));
         if (m1 === null || m2 === null) return;
         const ms = new Set(rectFromCells(m1, m2));
-        document.querySelectorAll('#step3Body .kmap-cell[data-minterm]').forEach(cell => {
+        wrap.querySelectorAll('.kmap-cell[data-minterm]').forEach(cell => {
           if (ms.has(+cell.dataset.minterm)) cell.classList.add('dragging');
         });
       }
-      wrap2.addEventListener('mousedown', e => {
-        if (!state.manualMode) return;
+      wrap.addEventListener('mousedown', e => {
         const m = getCellMinterm(e.target);
         if (m === null) return;
         e.preventDefault();
-        state.dragging = { active: true, startM: m, lastM: m, hadMove: false };
+        state.dragging = { active: true, startM: m, lastM: m, hadMove: false, wrap };
         setDragPreview(m, m);
       });
-      wrap2.addEventListener('mousemove', e => {
+      wrap.addEventListener('mousemove', e => {
         if (!state.dragging || !state.dragging.active) return;
         const m = getCellMinterm(e.target);
         if (m === null || m === state.dragging.lastM) return;
@@ -901,51 +882,27 @@
         state.dragging.hadMove = true;
         setDragPreview(state.dragging.startM, m);
       });
-      window.addEventListener('mouseup', () => {
-        if (!state.dragging || !state.dragging.active) return;
-        const { startM, lastM, hadMove } = state.dragging;
-        setDragPreview(null, null);
-        if (hadMove) {
-          // Commit the rectangle to pending selection (additive)
-          for (const m of rectFromCells(startM, lastM)) state.pendingSelection.add(m);
-          updatePendingHighlight();
-          state.dragging = null;
-          // Suppress the trailing click on the cell that ended the drag
-          state._suppressClick = true;
-          setTimeout(() => { state._suppressClick = false; }, 0);
-        } else {
-          state.dragging = null; // pure click — let cycleKmap's existing toggle handle it
-        }
-      });
-
-      // Controls
-      const ctrls = document.createElement('div'); ctrls.style.marginTop = '8px';
-      ctrls.innerHTML = `
-        <button id="autoFillKmapBtn">Auto-fill from truth table</button>
-        <button id="checkKmapBtn">Check K-map</button>
-        <span id="checkKmapResult" style="margin-left: 12px; font-size: 13px;"></span>
-      `;
-      body.appendChild(ctrls);
-      document.getElementById('autoFillKmapBtn').addEventListener('click', autoFillKmap);
-      document.getElementById('checkKmapBtn').addEventListener('click', checkKmap);
-      ctrls.insertAdjacentHTML('beforeend', `
-        <button id="continueGroupingBtn" style="margin-left: 24px;">Continue to grouping →</button>
-      `);
-      document.getElementById('continueGroupingBtn').addEventListener('click', () => {
-        state.step = 4;
-        document.getElementById('step4').classList.remove('disabled');
-        renderAll();
-      });
     }
 
-    function cycleKmap(m) {
-      if (state._suppressClick) return;
-      if (state.manualMode) {
-        if (state.pendingSelection.has(m)) state.pendingSelection.delete(m);
-        else state.pendingSelection.add(m);
+    // Global mouseup — registered once at module load
+    window.addEventListener('mouseup', () => {
+      if (!state.dragging || !state.dragging.active) return;
+      const { startM, lastM, hadMove, wrap } = state.dragging;
+      if (wrap) wrap.querySelectorAll('.kmap-cell.dragging').forEach(c => c.classList.remove('dragging'));
+      if (hadMove) {
+        const a = KMapCore.mintermToCell(startM, state.n);
+        const b = KMapCore.mintermToCell(lastM, state.n);
+        const r0 = Math.min(a.r, b.r), r1 = Math.max(a.r, b.r);
+        const c0 = Math.min(a.c, b.c), c1 = Math.max(a.c, b.c);
+        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) state.pendingSelection.add(KMapCore.cellToMinterm(r, c, state.n));
         updatePendingHighlight();
-        return;
+        state._suppressClick = true;
+        setTimeout(() => { state._suppressClick = false; }, 0);
       }
+      state.dragging = null;
+    });
+
+    function cycleEditCell(m) {
       const cur = state.kmapDraft[m];
       if (cur === null) state.kmapDraft[m] = 0;
       else if (cur === 0) state.kmapDraft[m] = 1;
@@ -956,8 +913,48 @@
       renderAll();
     }
 
+    function toggleGroupCell(m) {
+      if (state._suppressClick) return;
+      if (state.pendingSelection.has(m)) state.pendingSelection.delete(m);
+      else state.pendingSelection.add(m);
+      updatePendingHighlight();
+    }
+
+    function renderKmap() {
+      if (!state.kmapBuilt) return;
+      const body = document.getElementById('step3Body');
+      body.innerHTML = '';
+      renderExprBanner('step3Body');
+      const wrap = buildKmapElement('edit');
+      body.appendChild(wrap);
+
+      const ctrls = document.createElement('div'); ctrls.style.marginTop = '8px';
+      ctrls.innerHTML = `
+        <button id="autoFillKmapBtn">Auto-fill from truth table</button>
+        <button id="checkKmapBtn">Check K-map</button>
+        <span id="checkKmapResult" style="margin-left: 12px; font-size: 13px;"></span>
+        <button id="continueGroupingBtn" style="margin-left: 24px;">Continue to grouping →</button>
+      `;
+      body.appendChild(ctrls);
+      document.getElementById('autoFillKmapBtn').addEventListener('click', autoFillKmap);
+      document.getElementById('checkKmapBtn').addEventListener('click', checkKmap);
+      document.getElementById('continueGroupingBtn').addEventListener('click', () => {
+        state.step = 4;
+        document.getElementById('step4').classList.remove('disabled');
+        renderAll();
+      });
+    }
+
+    function renderKmapStep4() {
+      const container = document.getElementById('step4KmapContainer');
+      if (!container) return;
+      container.innerHTML = '';
+      const wrap = buildKmapElement('group');
+      container.appendChild(wrap);
+    }
+
     function updatePendingHighlight() {
-      document.querySelectorAll('#step3Body .kmap-cell[data-minterm]').forEach(cell => {
+      document.querySelectorAll('#step4KmapContainer .kmap-cell[data-minterm]').forEach(cell => {
         const m = +cell.dataset.minterm;
         cell.classList.toggle('pending', state.pendingSelection.has(m));
       });
@@ -1071,7 +1068,7 @@
       if (!confirm(`Reset Step ${s} and everything below?`)) return;
       if (s <= 2) { state.values = state.n ? Array(1 << state.n).fill('X') : []; state.answerKey = null; }
       if (s <= 3) { state.kmapDraft = null; state.kmapBuilt = false; }
-      if (s <= 4) { state.solverGroups = []; state.manualGroups = []; state.manualMode = false; state.pendingSelection.clear(); state.solveMode = null; }
+      if (s <= 4) { state.solverGroups = []; state.manualGroups = []; state.pendingSelection.clear(); state.solveMode = null; }
       if (s <= 5) { state.solutionVerified = false; state.verifiedExpression = null; }
       state._step4Rendered = false;
       state._step5VerifyRendered = false;
