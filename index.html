@@ -675,14 +675,23 @@
     /* === Given-expression banner (steps 2..6) === */
     .expr-banner {
       display: flex;
-      flex-direction: column;
-      gap: 4px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
       padding: 12px 16px;
       margin-bottom: 18px;
       background: var(--surface-soft);
       border: 1px solid var(--border);
       border-left: 3px solid var(--accent);
       border-radius: var(--radius-md);
+      flex-wrap: wrap;
+    }
+    .expr-banner-text {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+      min-width: 0;
     }
     .expr-banner-label {
       font-size: 11px;
@@ -696,6 +705,20 @@
       font-size: 15px;
       font-weight: 500;
       color: var(--text);
+      word-break: break-word;
+    }
+    .expr-banner-action {
+      flex-shrink: 0;
+      font-size: 12px;
+      padding: 7px 12px;
+    }
+
+    /* === Step note (short help text under headline) === */
+    .step-note {
+      font-size: 13.5px;
+      color: var(--text-2);
+      line-height: 1.55;
+      margin: 0 0 16px;
     }
 
     /* === Step tools / step advance pattern === */
@@ -882,6 +905,9 @@
       }
 
       // Clear state from each step after `fromStep`
+      if (fromStep < 2) {
+        state.truthTableVerified = false;
+      }
       if (fromStep < 3) {
         state.kmapDraft = null;
         state.kmapBuilt = false;
@@ -991,6 +1017,7 @@
       } while ((sop.expression === '0' || sop.expression === '1') && tries < 20);
       state.values = Array(1 << state.n).fill('X');
       state.answerKey = { expression: sop.expression, evaluated: bits };
+      state.truthTableVerified = false;
       const exprInput = document.getElementById('exprInput');
       if (exprInput) exprInput.value = sop.expression;
       renderAll();
@@ -1001,6 +1028,7 @@
       if (!_commitStep1ForRandom()) return;
       state.values = Array.from({ length: 1 << state.n }, () => Math.random() < 0.5 ? 0 : 1);
       state.answerKey = null;
+      state.truthTableVerified = false;
       const exprInput = document.getElementById('exprInput');
       if (exprInput) exprInput.value = '';
       renderAll();
@@ -1019,6 +1047,7 @@
     const state = {
       n: null, varNames: [], values: [], step: 1, maxStep: 1, kmapBuilt: false,
       answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
+      truthTableVerified: false,
       pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
       kmapLayout: null,
@@ -1033,15 +1062,21 @@
       verifiedExpression: null,
     };
 
-    function renderExprBanner(bodyId) {
+    function renderExprBanner(bodyId, opts = {}) {
       if (!state.answerKey) return;
       const body = document.getElementById(bodyId);
       if (!body) return;
       const banner = document.createElement('div');
       banner.className = 'expr-banner';
+      const action = opts.withAutoFill
+        ? `<button class="expr-banner-action" id="autoFillBtn" type="button" title="Fill the F column from this expression automatically">⤓ Auto-fill F column</button>`
+        : '';
       banner.innerHTML = `
-        <span class="expr-banner-label">Given expression</span>
-        <span class="expr-banner-formula">F(${state.varNames.join(', ')}) = ${state.answerKey.expression}</span>
+        <div class="expr-banner-text">
+          <span class="expr-banner-label">Given expression</span>
+          <span class="expr-banner-formula">F(${state.varNames.join(', ')}) = ${state.answerKey.expression}</span>
+        </div>
+        ${action}
       `;
       body.prepend(banner);
     }
@@ -1049,7 +1084,15 @@
     function renderTruthTable() {
       const body = document.getElementById('step2Body');
       body.innerHTML = '';
-      renderExprBanner('step2Body');
+      renderExprBanner('step2Body', { withAutoFill: !!state.answerKey });
+
+      const note = document.createElement('p');
+      note.className = 'step-note';
+      note.textContent = state.answerKey
+        ? "Fill in the F column for each row based on the expression above. Click Check to verify your answers — the Continue button unlocks once they all match."
+        : "Fill in the F column for each row however you'd like. There's no expression to check against, so you can continue whenever you're ready.";
+      body.appendChild(note);
+
       const tbl = document.createElement('table');
       tbl.className = 'truthTable';
       const thead = document.createElement('thead');
@@ -1080,28 +1123,32 @@
       }
       tbl.appendChild(tbody);
       body.appendChild(tbl);
+      const continueLocked = !!state.answerKey && !state.truthTableVerified;
       const exprWrap = document.createElement('div');
       exprWrap.innerHTML = `
-        <div class="step-tools">
-          <div class="step-tools-row">
-            <button id="autoFillBtn" type="button" ${!state.answerKey ? 'disabled' : ''}>Fill F from expression</button>
-            <button id="checkTtBtn" type="button" ${!state.answerKey ? 'disabled' : ''}>Check truth table</button>
+        ${state.answerKey ? `
+          <div class="step-tools">
+            <div class="step-tools-row">
+              <button id="checkTtBtn" type="button">Check truth table</button>
+            </div>
+            <div id="checkTtResult" class="tool-result"></div>
+            <div class="err" id="exprErr"></div>
           </div>
-          <div id="checkTtResult" class="tool-result"></div>
-          <div class="err" id="exprErr"></div>
-        </div>
+        ` : ''}
         <div class="step-advance">
-          <button id="buildKmapBtn" type="button">Continue to K-map →</button>
+          <button id="buildKmapBtn" type="button" ${continueLocked ? 'disabled' : ''}${continueLocked ? ' title="Click Check truth table first — Continue unlocks once all rows match the expression."' : ''}>Continue →</button>
         </div>
       `;
       body.appendChild(exprWrap);
-      document.getElementById('autoFillBtn').addEventListener('click', autoFillFromExpression);
-      document.getElementById('checkTtBtn').addEventListener('click', checkTruthTable);
+      if (state.answerKey) {
+        document.getElementById('autoFillBtn').addEventListener('click', autoFillFromExpression);
+        document.getElementById('checkTtBtn').addEventListener('click', checkTruthTable);
+      }
       document.getElementById('buildKmapBtn').addEventListener('click', () => {
+        if (!!state.answerKey && !state.truthTableVerified) return;
         state.kmapBuilt = true;
         state.step = 3;
         state.kmapDraft = Array(1 << state.n).fill(null);
-        document.getElementById('step3').classList.remove('disabled');
         renderAll();
       });
     }
@@ -1110,7 +1157,8 @@
       const cur = state.values[m];
       state.values[m] = cur === 0 ? 1 : cur === 1 ? 'X' : 0;
       state.solverGroups = [];
-      cascadeChange(2);  // any later step is now stale
+      state.truthTableVerified = false;  // any edit invalidates the verified state
+      cascadeChange(2);
       renderAll();
     }
 
@@ -2038,6 +2086,7 @@
       if (!state.answerKey) return;
       for (let m = 0; m < state.values.length; m++) state.values[m] = state.answerKey.evaluated[m];
       state.solverGroups = [];
+      state.truthTableVerified = true;  // auto-fill matches the expression by definition
       cascadeChange(2);
       renderAll();
     }
@@ -2052,8 +2101,20 @@
         td.classList.toggle('wrong', !ok);
         if (ok) pass++; else { wrong.push(m); td.title = `expected ${correct[m]}`; }
       });
-      document.getElementById('checkTtResult').textContent =
-        `${pass} / ${1 << state.n} correct` + (wrong.length ? ` — wrong: m=${wrong.join(',')}` : '');
+      state.truthTableVerified = (wrong.length === 0);
+      const result = document.getElementById('checkTtResult');
+      if (wrong.length === 0) {
+        result.innerHTML = `<span style="color: var(--success); font-weight: 600;">✓ All ${1 << state.n} rows correct — Continue is unlocked.</span>`;
+      } else {
+        result.innerHTML = `<span style="color: var(--error);">${pass} / ${1 << state.n} correct — wrong rows: m=${wrong.join(', ')}</span>`;
+      }
+      // Toggle the Continue button without re-rendering the whole table.
+      const cont = document.getElementById('buildKmapBtn');
+      if (cont) {
+        cont.disabled = !state.truthTableVerified;
+        if (state.truthTableVerified) cont.removeAttribute('title');
+        else cont.title = 'Click Check truth table first — Continue unlocks once all rows match the expression.';
+      }
     }
 
     function renderNameInputs() {
@@ -2124,6 +2185,7 @@
       if (!_commitStep1ForRandom()) return;
       state.values = Array(1 << state.n).fill('X');
       state.answerKey = null;
+      state.truthTableVerified = false;
       renderAll();
     });
 
@@ -2162,7 +2224,7 @@
 
     function resetFromStep(s) {
       if (!confirm(`Reset Step ${s} and everything below?`)) return;
-      if (s <= 2) { state.values = state.n ? Array(1 << state.n).fill('X') : []; state.answerKey = null; }
+      if (s <= 2) { state.values = state.n ? Array(1 << state.n).fill('X') : []; state.answerKey = null; state.truthTableVerified = false; }
       if (s <= 3) { state.kmapDraft = null; state.kmapBuilt = false; }
       if (s <= 4) { state.solverGroups = []; state.manualGroups = []; state.pendingSelection.clear(); state.solveMode = null; }
       if (s <= 5) { state.solutionVerified = false; state.verifiedExpression = null; }
