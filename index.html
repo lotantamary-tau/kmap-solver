@@ -35,6 +35,10 @@
     .kmap-cell.pending { outline: 3px dashed #06c; outline-offset: -3px; z-index: 1; }
     .group-chip { display: inline-block; padding: 4px 8px; margin: 2px; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; font-size: 13px; }
     .group-chip .remove { margin-left: 6px; cursor: pointer; color: #c00; font-weight: 700; }
+    .step-header { display: flex; justify-content: space-between; align-items: center; }
+    .step-header h2 { margin: 0; }
+    .reset-link { font-size: 12px; color: #888; text-decoration: none; }
+    .reset-link:hover { color: #c00; text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -64,13 +68,49 @@
     <button id="continueBtn" style="margin-top: 12px;">Continue</button>
   </section>
 
-  <section id="step2" class="step disabled"><h2>Step 2 — Truth table</h2><div id="step2Body"></div></section>
-  <section id="step3" class="step disabled"><h2>Step 3 — K-map</h2><div id="step3Body"></div></section>
-  <section id="step4" class="step disabled"><h2>Step 4 — Solve</h2><div id="step4Body"></div></section>
-  <section id="step5" class="step disabled"><h2>Step 5 — Export</h2><div id="step5Body"></div></section>
+  <section id="step2" class="step disabled">
+    <div class="step-header">
+      <h2>Step 2 — Truth table</h2>
+      <a href="#" class="reset-link" data-step="2">Reset this step</a>
+    </div>
+    <div id="step2Body"></div>
+  </section>
+  <section id="step3" class="step disabled">
+    <div class="step-header">
+      <h2>Step 3 — K-map</h2>
+      <a href="#" class="reset-link" data-step="3">Reset this step</a>
+    </div>
+    <div id="step3Body"></div>
+  </section>
+  <section id="step4" class="step disabled">
+    <div class="step-header">
+      <h2>Step 4 — Solve</h2>
+      <a href="#" class="reset-link" data-step="4">Reset this step</a>
+    </div>
+    <div id="step4Body"></div>
+  </section>
+  <section id="step5" class="step disabled">
+    <div class="step-header">
+      <h2>Step 5 — Export</h2>
+      <a href="#" class="reset-link" data-step="5">Reset this step</a>
+    </div>
+    <div id="step5Body"></div>
+  </section>
+
+  <div id="errBar" style="position: fixed; bottom: 16px; right: 16px; background: #c00; color: #fff; padding: 8px 14px; border-radius: 4px; font-size: 13px; display: none; z-index: 100; max-width: 300px;"></div>
 
   <script>
     'use strict';
+    let errTimer = null;
+    function showError(msg) {
+      const bar = document.getElementById('errBar');
+      if (!bar) return;
+      bar.textContent = msg;
+      bar.style.display = 'block';
+      if (errTimer) clearTimeout(errTimer);
+      errTimer = setTimeout(() => { bar.style.display = 'none'; }, 5000);
+    }
+
     const RESERVED = new Set(['AND','OR','NOT','and','or','not']);
     const state = {
       n: null, varNames: [], values: [], step: 1, kmapBuilt: false,
@@ -79,6 +119,7 @@
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
       _step4Rendered: false,
       _step5Rendered: false,
+      _exportReady: true,
     };
 
     function renderTruthTable() {
@@ -164,6 +205,7 @@
           state._step5Rendered = true;
         }
       }
+      updateBreadcrumb();
     }
 
     function renderStep4() {
@@ -417,6 +459,10 @@
       `;
       document.getElementById('dlPngBtn').addEventListener('click', downloadPng);
       document.getElementById('dlPdfBtn').addEventListener('click', downloadPdf);
+      if (!state._exportReady) {
+        document.getElementById('dlPngBtn').disabled = true;
+        document.getElementById('dlPdfBtn').disabled = true;
+      }
     }
 
     async function snapshotSections() {
@@ -663,7 +709,60 @@
       renderAll();
     });
 
+    function updateBreadcrumb() {
+      const labels = document.querySelectorAll('#breadcrumb span');
+      // Spans alternate label, arrow, label, arrow, ...
+      // Indices 0, 2, 4, 6, 8 = step labels for steps 1..5
+      for (let i = 0; i < 5; i++) {
+        const span = labels[i * 2];
+        if (!span) continue;
+        span.classList.toggle('active', state.step === i + 1);
+      }
+    }
+
+    function resetFromStep(s) {
+      if (!confirm(`Reset Step ${s} and everything below?`)) return;
+      if (s <= 2) { state.values = state.n ? Array(1 << state.n).fill(0) : []; state.answerKey = null; }
+      if (s <= 3) { state.kmapDraft = null; state.kmapBuilt = false; }
+      if (s <= 4) { state.solverGroups = []; state.manualGroups = []; state.manualMode = false; state.pendingSelection.clear(); state.solveMode = null; }
+      state._step4Rendered = false;
+      state._step5Rendered = false;
+      state.step = Math.max(1, s - 1);
+      // Reset visual disabled state
+      for (let i = s; i <= 5; i++) {
+        const el = document.getElementById('step' + i);
+        if (el) el.classList.add('disabled');
+        const body = document.getElementById('step' + i + 'Body');
+        if (body) body.innerHTML = '';
+      }
+      renderAll();
+      updateBreadcrumb();
+    }
+
+    document.querySelectorAll('.reset-link').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        resetFromStep(+a.dataset.step);
+      });
+    });
+
     renderNameInputs();
+    updateBreadcrumb();
+
+    // CDN fallback check
+    window.addEventListener('load', () => {
+      const missing = [];
+      if (typeof window.html2canvas !== 'function') missing.push('html2canvas');
+      if (!window.jspdf) missing.push('jsPDF');
+      if (missing.length) {
+        state._exportReady = false;
+        showError('Export libs failed to load: ' + missing.join(', ') + '. Check your internet connection. Other features still work.');
+        // If Step 5 is already visible, disable its buttons
+        const png = document.getElementById('dlPngBtn'), pdf = document.getElementById('dlPdfBtn');
+        if (png) png.disabled = true;
+        if (pdf) pdf.disabled = true;
+      }
+    });
   </script>
 </body>
 </html>
