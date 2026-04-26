@@ -185,6 +185,47 @@
       errTimer = setTimeout(() => { bar.style.display = 'none'; }, 5000);
     }
 
+    function cascadeChange(fromStep) {
+      // Called whenever the user mutates state at step `fromStep`. All later
+      // steps are now stale: close them, clear their state, reset render flags.
+      if (state.step <= fromStep) return; // no later step open — nothing to do
+
+      // Clear state from each step after `fromStep`
+      if (fromStep < 3) {
+        state.kmapDraft = null;
+        state.kmapBuilt = false;
+      }
+      if (fromStep < 4) {
+        state.solverGroups = [];
+        state.manualGroups = [];
+        state.solveMode = null;
+        state.solverExpression = null;
+        if (state.pendingSelection) state.pendingSelection.clear();
+      }
+      if (fromStep < 5) {
+        state.solutionVerified = false;
+        state.verifiedExpression = null;
+      }
+
+      // Reset render flags so the next time these steps open, they re-render fresh
+      state._step4Rendered = false;
+      state._step5VerifyRendered = false;
+      state._step6Rendered = false;
+
+      // Walk back state.step to fromStep
+      state.step = fromStep;
+
+      // Visually disable all sections AFTER fromStep
+      for (let i = fromStep + 1; i <= 6; i++) {
+        const el = document.getElementById('step' + i);
+        if (el) el.classList.add('disabled');
+        const body = document.getElementById('step' + i + 'Body');
+        if (body) body.innerHTML = '';
+      }
+
+      renderAll();
+    }
+
     const RESERVED = new Set(['AND','OR','NOT','and','or','not']);
     const PALETTE = ['#e63946', '#1d9bf0', '#2a9d8f', '#f4a261', '#9b5de5', '#ff6700', '#06d6a0', '#ef476f'];
     function paletteColor(i) { return PALETTE[i % PALETTE.length]; }
@@ -280,8 +321,7 @@
       const cur = state.values[m];
       state.values[m] = cur === 0 ? 1 : cur === 1 ? 'X' : 0;
       state.solverGroups = [];
-      state.solutionVerified = false;
-      state.verifiedExpression = null;
+      cascadeChange(2);  // any later step is now stale
       renderAll();
     }
 
@@ -341,10 +381,7 @@
       const r = KMapCore.solve(state.values, state.n, mode, state.varNames);
       state.solverGroups = r.groups.map((g, i) => ({ ...g, color: paletteColor(i) }));
       state.solverExpression = r.expression;
-      // Result expression revealed only after Step 5 verification.
-      state.solutionVerified = false;
-      state.verifiedExpression = null;
-      state._step5VerifyRendered = false;
+      cascadeChange(4);
       renderOverlays();
     }
 
@@ -395,21 +432,14 @@
     function clearMap() {
       state.values.fill('X');
       if (state.kmapDraft) state.kmapDraft.fill(null);
-      state.solverGroups = [];
-      state.manualGroups = [];
-      state.solutionVerified = false;
-      state.verifiedExpression = null;
-      state._step5VerifyRendered = false;
+      cascadeChange(2);
       renderAll();
     }
 
     function randomFill() {
       for (let i = 0; i < state.values.length; i++) state.values[i] = Math.random() < 0.5 ? 0 : 1;
       if (state.kmapDraft) for (let i = 0; i < state.kmapDraft.length; i++) state.kmapDraft[i] = state.values[i];
-      state.solverGroups = [];
-      state.solutionVerified = false;
-      state.verifiedExpression = null;
-      state._step5VerifyRendered = false;
+      cascadeChange(2);
       renderAll();
     }
 
@@ -468,8 +498,7 @@
         chip.querySelector('.remove').addEventListener('click', e => {
           e.stopPropagation();
           state.manualGroups.splice(idx, 1);
-          state.solutionVerified = false;
-          state.verifiedExpression = null;
+          cascadeChange(4);
           renderManualGroupList();
           renderOverlays();
         });
@@ -509,9 +538,8 @@
         term, color, rects,
         andMask: cube.andMask, freeBits: cube.freeBits,
       });
+      cascadeChange(4);
       state.pendingSelection.clear();
-      state.solutionVerified = false;
-      state.verifiedExpression = null;
       updatePendingHighlight();
       renderManualGroupList();
       renderOverlays();
@@ -908,8 +936,7 @@
       else if (cur === 0) state.kmapDraft[m] = 1;
       else if (cur === 1) state.kmapDraft[m] = 'X';
       else state.kmapDraft[m] = 0;
-      state.solutionVerified = false;
-      state.verifiedExpression = null;
+      cascadeChange(3);
       renderAll();
     }
 
@@ -963,6 +990,7 @@
     function autoFillKmap() {
       for (let m = 0; m < state.values.length; m++) state.kmapDraft[m] = state.values[m];
       state.solverGroups = [];
+      cascadeChange(3);
       renderAll();
     }
 
@@ -984,6 +1012,7 @@
       if (!state.answerKey) return;
       for (let m = 0; m < state.values.length; m++) state.values[m] = state.answerKey.evaluated[m];
       state.solverGroups = [];
+      cascadeChange(2);
       renderAll();
     }
 
@@ -1031,9 +1060,14 @@
       return !err;
     }
 
-    document.getElementById('varCount').addEventListener('change', renderNameInputs);
+    document.getElementById('varCount').addEventListener('change', () => {
+      cascadeChange(1);
+      renderNameInputs();  // existing behavior — re-renders the name inputs
+    });
     document.getElementById('continueBtn').addEventListener('click', () => {
       if (!validateStep1()) return;
+      // Cascade: any later step is now stale because state.n / state.varNames / state.values / state.answerKey are about to be rewritten.
+      cascadeChange(1);
       const exprSrc = document.getElementById('exprInput').value.trim();
       const errEl = document.getElementById('step1ExprErr');
       errEl.textContent = '';
