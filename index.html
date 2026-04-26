@@ -740,6 +740,7 @@
           <input id="verifyInput" type="text" style="width: 320px;" placeholder="e.g. A + BC'D'">
           <button id="verifyBtn">Check</button>
           <button id="continueExportBtn" disabled>Continue to export →</button>
+          <button id="revealAnswerBtn" style="margin-left: 16px;">🔍 Reveal answer</button>
         </div>
         <div id="verifyResult" style="margin-top: 10px; font-size: 14px; white-space: pre-line;"></div>
       `);
@@ -749,12 +750,87 @@
         document.getElementById('step6').classList.remove('disabled');
         renderAll();
       });
+      document.getElementById('revealAnswerBtn').addEventListener('click', openRevealPrank);
       // If already verified, restore that state visually
       if (state.solutionVerified) {
         document.getElementById('continueExportBtn').disabled = false;
         document.getElementById('verifyResult').textContent = '✓ Correct! Group terms revealed below.';
         document.getElementById('verifyResult').style.color = '#0a0';
       }
+    }
+
+    function openRevealPrank() {
+      // Modal overlay with two buttons. The "Yes" button runs away from the cursor.
+      const overlay = document.createElement('div');
+      overlay.id = 'revealOverlay';
+      overlay.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; display: flex; align-items: center; justify-content: center;';
+      const box = document.createElement('div');
+      box.style.cssText = 'position: relative; background: #fff; border-radius: 10px; padding: 28px 32px; min-width: 360px; min-height: 200px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); font-size: 15px;';
+      box.innerHTML = `
+        <h3 style="margin: 0 0 8px;">Are you sure?</h3>
+        <p style="margin: 0 0 20px; color: #444;">You want to reveal the answer?</p>
+        <div style="position: relative; height: 80px;">
+          <button id="revealCancelBtn" style="background: #1d9bf0; color: #fff; border: 1px solid #1d9bf0; padding: 8px 16px; border-radius: 6px;">Cancel</button>
+          <button id="revealYesBtn" style="position: absolute; top: 0; left: 200px; background: #e63946; color: #fff; border: 1px solid #e63946; padding: 8px 16px; border-radius: 6px;">Yes, reveal it</button>
+        </div>
+      `;
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+
+      const yes = document.getElementById('revealYesBtn');
+      const cancel = document.getElementById('revealCancelBtn');
+
+      function dodge(mouseX, mouseY) {
+        const r = yes.getBoundingClientRect();
+        const cx = r.left + r.width / 2;
+        const cy = r.top + r.height / 2;
+        const dx = mouseX - cx;
+        const dy = mouseY - cy;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 100) return; // out of trigger range
+        // Pick a random new position within the box, away from the cursor and the cancel button
+        const boxRect = box.getBoundingClientRect();
+        const cancelRect = cancel.getBoundingClientRect();
+        const yesW = r.width, yesH = r.height;
+        const padding = 10;
+        let nx, ny, tries = 0;
+        do {
+          nx = padding + Math.random() * (boxRect.width - yesW - padding * 2);
+          ny = padding + Math.random() * (boxRect.height - yesH - padding * 2);
+          tries++;
+          if (tries > 30) break;
+          // Ensure it's far from cursor and not overlapping cancel
+          const absX = boxRect.left + nx + yesW / 2;
+          const absY = boxRect.top + ny + yesH / 2;
+          const farFromCursor = Math.hypot(absX - mouseX, absY - mouseY) > 140;
+          const cancelOverlap =
+            absX + yesW / 2 > cancelRect.left - 8 &&
+            absX - yesW / 2 < cancelRect.right + 8 &&
+            absY + yesH / 2 > cancelRect.top - 8 &&
+            absY - yesH / 2 < cancelRect.bottom + 8;
+          if (farFromCursor && !cancelOverlap) break;
+        } while (true);
+        yes.style.left = nx + 'px';
+        yes.style.top = ny + 'px';
+      }
+
+      function onMove(e) { dodge(e.clientX, e.clientY); }
+      function onTouch(e) { if (e.touches && e.touches[0]) dodge(e.touches[0].clientX, e.touches[0].clientY); }
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('touchstart', onTouch, { passive: true });
+      window.addEventListener('touchmove', onTouch, { passive: true });
+      // Also dodge if the user keyboard-tabs to it
+      yes.addEventListener('focus', () => dodge(window.innerWidth / 2, window.innerHeight / 2));
+
+      function close() {
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('touchstart', onTouch);
+        window.removeEventListener('touchmove', onTouch);
+        overlay.remove();
+      }
+      cancel.addEventListener('click', close);
+      // Defensive: even if the user somehow lands on Yes, just close (don't actually reveal)
+      yes.addEventListener('click', close);
     }
 
     function verifyUserExpression() {
