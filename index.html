@@ -410,7 +410,7 @@
           <h4>Or auto-solve:</h4>
           <button id="solveSopBtn">Solve 1s (SOP)</button>
           <button id="solvePosBtn">Solve 0s (POS)</button>
-          <button id="clearBtn">Clear</button>
+          <button id="clearGroupingBtn">Clear grouping</button>
         </div>
         <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee;">
           <button id="continueVerifyBtn">Continue to check your solution →</button>
@@ -419,7 +419,7 @@
 
       document.getElementById('solveSopBtn').addEventListener('click', () => doSolve('SOP'));
       document.getElementById('solvePosBtn').addEventListener('click', () => doSolve('POS'));
-      document.getElementById('clearBtn').addEventListener('click', clearMap);
+      document.getElementById('clearGroupingBtn').addEventListener('click', clearGrouping);
       document.getElementById('continueVerifyBtn').addEventListener('click', () => {
         state.step = 5;
         document.getElementById('step5').classList.remove('disabled');
@@ -481,13 +481,6 @@
     }
 
     window.addEventListener('resize', renderOverlays);
-
-    function clearMap() {
-      state.values.fill('X');
-      if (state.kmapDraft) state.kmapDraft.fill(null);
-      cascadeChange(2);
-      renderAll();
-    }
 
     function renderManualPanel() {
       const panel = document.getElementById('manualPanel');
@@ -1004,18 +997,45 @@
       const ctrls = document.createElement('div'); ctrls.style.marginTop = '8px';
       ctrls.innerHTML = `
         <button id="autoFillKmapBtn">Auto-fill from truth table</button>
+        <button id="clearKmapBtn">Clear K-map</button>
         <button id="checkKmapBtn">Check K-map</button>
         <span id="checkKmapResult" style="margin-left: 12px; font-size: 13px;"></span>
         <button id="continueGroupingBtn" style="margin-left: 24px;">Continue to grouping →</button>
       `;
       body.appendChild(ctrls);
       document.getElementById('autoFillKmapBtn').addEventListener('click', autoFillKmap);
+      document.getElementById('clearKmapBtn').addEventListener('click', clearKmapCells);
       document.getElementById('checkKmapBtn').addEventListener('click', checkKmap);
       document.getElementById('continueGroupingBtn').addEventListener('click', () => {
         state.step = 4;
         document.getElementById('step4').classList.remove('disabled');
         renderAll();
       });
+    }
+
+    function clearKmapCells() {
+      if (!state.kmapDraft) return;
+      state.kmapDraft.fill(null);
+      cascadeChange(3);
+      renderAll();
+    }
+
+    function clearGrouping() {
+      state.manualGroups = [];
+      state.solverGroups = [];
+      if (state.pendingSelection) state.pendingSelection.clear();
+      state.solveMode = null;
+      state.solverExpression = null;
+      state.solutionVerified = false;
+      state.verifiedExpression = null;
+      cascadeChange(4);
+      renderOverlays();
+      renderManualGroupList();
+      updatePendingHighlight();
+      const cgr = document.getElementById('checkGroupsResult');
+      if (cgr) cgr.textContent = '';
+      const ccr = document.getElementById('checkCoverageResult');
+      if (ccr) ccr.textContent = '';
     }
 
     function renderKmapStep4() {
