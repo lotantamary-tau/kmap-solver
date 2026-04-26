@@ -451,7 +451,9 @@
         <div id="manualGroupList" style="margin-top: 8px;"></div>
         <div style="margin-top: 8px;">
           <button id="checkGroupsBtn">Check my groups</button>
+          <button id="checkCoverageBtn" style="margin-left: 8px;">Check coverage (vs truth table)</button>
           <div id="checkGroupsResult" style="margin-top: 6px; font-size: 13px; white-space: pre-line;"></div>
+          <div id="checkCoverageResult" style="margin-top: 6px; font-size: 13px; white-space: pre-line;"></div>
         </div>
       `;
       panel.querySelectorAll('input[name="manualPolarity"]').forEach(r => {
@@ -464,6 +466,7 @@
         document.getElementById('manualErr').textContent = '';
       });
       document.getElementById('checkGroupsBtn').addEventListener('click', checkManualGroups);
+      document.getElementById('checkCoverageBtn').addEventListener('click', checkCoverageAgainstTruthTable);
       renderManualGroupList();
     }
 
@@ -602,6 +605,38 @@
       else lines.push(`Minimality: your cover uses ${state.manualGroups.length} groups (${userLits} literals); minimum is ${ref.groups.length} (${refLits} literals)`);
 
       out.textContent = lines.join('\n');
+    }
+
+    function checkCoverageAgainstTruthTable() {
+      const out = document.getElementById('checkCoverageResult');
+      out.style.color = '';
+      const groups = [...state.manualGroups, ...state.solverGroups];
+      if (groups.length === 0) {
+        out.style.color = '#c00';
+        out.textContent = 'No groups yet. Confirm a group or auto-solve first.';
+        return;
+      }
+      const mode = state.solveMode || 'SOP';
+      const covered = new Set();
+      for (const g of groups) for (const m of g.minterms) covered.add(m);
+      const total = state.values.length;
+      const mismatches = [];
+      for (let m = 0; m < total; m++) {
+        const expected = state.values[m];
+        if (expected === 'X') continue;
+        const inGroup = covered.has(m);
+        const fPrime = mode === 'SOP' ? (inGroup ? 1 : 0) : (inGroup ? 0 : 1);
+        if (fPrime !== expected) mismatches.push({ m, expected, got: fPrime });
+      }
+      if (mismatches.length === 0) {
+        out.style.color = '#0a0';
+        out.textContent = `✓ Your groups define the correct function (${mode}).`;
+        return;
+      }
+      out.style.color = '#c00';
+      const preview = mismatches.slice(0, 5).map(x => `  • m=${x.m}: F=${x.expected}, your groups give ${x.got}`).join('\n');
+      const more = mismatches.length > 5 ? `\n  …and ${mismatches.length - 5} more` : '';
+      out.textContent = `✗ ${mismatches.length} minterm(s) don't match the truth table:\n${preview}${more}`;
     }
 
     function renderVerify() {
