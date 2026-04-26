@@ -18,6 +18,11 @@
     .err { color: #c00; font-size: 13px; margin-top: 4px; }
     button { padding: 6px 12px; border-radius: 4px; border: 1px solid #888; background: #f5f5f5; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
+    table.truthTable { border-collapse: collapse; margin-top: 8px; }
+    table.truthTable th, table.truthTable td { border: 1px solid #999; padding: 4px 10px; text-align: center; min-width: 30px; }
+    table.truthTable td.f { cursor: pointer; user-select: none; font-weight: 600; }
+    table.truthTable td.f.x { color: #888; font-style: italic; }
+    table.truthTable td.f.wrong { background: #fdd; }
   </style>
 </head>
 <body>
@@ -61,6 +66,53 @@
       manualMode: false, pendingSelection: new Set(),
     };
 
+    function renderTruthTable() {
+      const body = document.getElementById('step2Body');
+      body.innerHTML = '';
+      const tbl = document.createElement('table');
+      tbl.className = 'truthTable';
+      const thead = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      for (const name of state.varNames) {
+        const th = document.createElement('th');
+        th.textContent = name;
+        headRow.appendChild(th);
+      }
+      const fTh = document.createElement('th'); fTh.textContent = 'F'; headRow.appendChild(fTh);
+      thead.appendChild(headRow); tbl.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      for (let m = 0; m < state.values.length; m++) {
+        const tr = document.createElement('tr');
+        for (let i = 0; i < state.n; i++) {
+          const td = document.createElement('td');
+          td.textContent = (m >> (state.n - 1 - i)) & 1;
+          tr.appendChild(td);
+        }
+        const fTd = document.createElement('td');
+        fTd.className = 'f';
+        fTd.dataset.minterm = m;
+        fTd.textContent = state.values[m];
+        if (state.values[m] === 'X') fTd.classList.add('x');
+        fTd.addEventListener('click', () => cycleF(m));
+        tr.appendChild(fTd);
+        tbody.appendChild(tr);
+      }
+      tbl.appendChild(tbody);
+      body.appendChild(tbl);
+    }
+
+    function cycleF(m) {
+      const cur = state.values[m];
+      state.values[m] = cur === 0 ? 1 : cur === 1 ? 'X' : 0;
+      state.solverGroups = [];
+      renderAll();
+    }
+
+    function renderAll() {
+      if (state.step >= 2) renderTruthTable();
+      // Step 3 + 4 + 5 added in later tasks.
+    }
+
     function renderNameInputs() {
       const n = parseInt(document.getElementById('varCount').value, 10);
       const wrap = document.getElementById('nameInputs');
@@ -99,7 +151,7 @@
       state.values = Array(1 << state.n).fill(0);
       state.step = 2;
       document.getElementById('step2').classList.remove('disabled');
-      // Subsequent steps render Step 2 body (Task 9 implements).
+      renderAll();
     });
 
     renderNameInputs();
