@@ -194,6 +194,10 @@
       // steps are now stale: close them, clear their state, reset render flags.
       if (state.step <= fromStep) return; // no later step open — nothing to do
 
+      if (fromStep < 3 && state.n !== null) {
+        state.kmapLayout = KMapCore.defaultLayout(state.n);
+      }
+
       // Clear state from each step after `fromStep`
       if (fromStep < 3) {
         state.kmapDraft = null;
@@ -230,12 +234,47 @@
       renderAll();
     }
 
+    function enumerateLayouts(n) {
+      // Return all valid (rowVars, colVars) partitions where neither side is empty,
+      // EXCEPT for n=1 where rowVars must be empty (1x2 grid).
+      const result = [];
+      if (n === 1) return [{ rowVars: [], colVars: [0] }];
+      // Iterate non-empty proper subsets of {0..n-1} as rowVars (in ascending order).
+      // Cap rowVars.length at n-1 so colVars is non-empty.
+      for (let mask = 1; mask < (1 << n) - 1; mask++) {
+        const rowVars = [];
+        const colVars = [];
+        for (let i = 0; i < n; i++) {
+          if (mask & (1 << i)) rowVars.push(i);
+          else colVars.push(i);
+        }
+        // Limit row/col bit count to <=3 (we only support 1-bit, 2-bit, 3-bit Gray)
+        if (rowVars.length > 3 || colVars.length > 3) continue;
+        result.push({ rowVars, colVars });
+      }
+      return result;
+    }
+
+    function formatLayout(layout, varNames) {
+      const rowStr = layout.rowVars.map(i => varNames[i]).join('') || '·';
+      const colStr = layout.colVars.map(i => varNames[i]).join('');
+      return `${rowStr}\\${colStr}`;
+    }
+
+    function layoutsEqual(a, b) {
+      return a.rowVars.length === b.rowVars.length
+          && a.colVars.length === b.colVars.length
+          && a.rowVars.every((v, i) => v === b.rowVars[i])
+          && a.colVars.every((v, i) => v === b.colVars[i]);
+    }
+
     function practiceRandom() {
       if (state.step < 2) return; // button should be disabled, but defensive
       // Random 0/1 function (no don't-cares)
       state.values = Array.from({ length: 1 << state.n }, () => Math.random() < 0.5 ? 0 : 1);
       state.kmapDraft = state.values.slice();
       state.kmapBuilt = true;
+      state.kmapLayout = KMapCore.defaultLayout(state.n);
       // Clear answer key + groups + verification — random functions don't have an expression
       state.answerKey = null;
       state.solverGroups = [];
@@ -285,6 +324,7 @@
       answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
       pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
+      kmapLayout: null,
       _step4Rendered: false,
       _step5VerifyRendered: false,
       _step6Rendered: false,
@@ -432,7 +472,11 @@
     function doSolve(mode) {
       state.solveMode = mode;
       const r = KMapCore.solve(state.values, state.n, mode, state.varNames);
-      state.solverGroups = r.groups.map((g, i) => ({ ...g, color: paletteColor(i) }));
+      state.solverGroups = r.groups.map((g, i) => ({
+        ...g,
+        color: paletteColor(i),
+        rects: KMapCore.groupRects(g.minterms, state.n, state.kmapLayout),
+      }));
       state.solverExpression = r.expression;
       cascadeChange(4);
       renderOverlays();
@@ -448,7 +492,7 @@
       const cellRects = {};
       cells.forEach(cell => {
         const m = +cell.dataset.minterm;
-        const { r, c } = KMapCore.mintermToCell(m, state.n);
+        const { r, c } = KMapCore.mintermToCell(m, state.n, state.kmapLayout);
         cellRects[`${r},${c}`] = cell.getBoundingClientRect();
       });
       const overlayRect = overlay.parentElement.getBoundingClientRect();
@@ -571,7 +615,7 @@
       const term = KMapCore.extractTerm(cube.andMask, cube.freeBits, state.n, state.varNames, mode);
       const idx = state.manualGroups.length;
       const color = paletteColor(idx);
-      const rects = KMapCore.groupRects(minterms, state.n);
+      const rects = KMapCore.groupRects(minterms, state.n, state.kmapLayout);
       state.manualGroups.push({
         minterms: minterms.slice().sort((a,b)=>a-b),
         term, color, rects,
@@ -877,7 +921,10 @@
     }
 
     function buildKmapElement(mode) {
-      const { rows, cols } = KMapCore.rowsCols(state.n);
+      const { rows, cols } = KMapCore.rowsCols(state.n, state.kmapLayout);
+      const layout = state.kmapLayout;
+      const rBits = layout.rowVars.length;
+      const cBits = layout.colVars.length;
       const wrap = document.createElement('div');
       wrap.className = 'kmap';
       wrap.dataset.mode = mode;
@@ -886,13 +933,11 @@
       // Header row
       const top = document.createElement('div'); top.className = 'kmap-row';
       const corner = document.createElement('div'); corner.className = 'kmap-cell kmap-header';
-      const labelMSB = state.n >= 3 ? state.varNames.slice(0, state.n - 2).join('') : '';
-      const labelLSB = state.varNames.slice(state.n >= 3 ? state.n - 2 : 0).join('');
-      corner.textContent = state.n >= 3 ? `${labelMSB}\\${labelLSB}` : labelLSB;
+      corner.textContent = formatLayout(layout, state.varNames);
       top.appendChild(corner);
-      for (const cBits of cols) {
+      for (const cBits_val of cols) {
         const h = document.createElement('div'); h.className = 'kmap-cell kmap-header';
-        h.textContent = cBits.toString(2).padStart(state.n >= 3 ? 2 : 1, '0');
+        h.textContent = cBits_val.toString(2).padStart(cBits, '0');
         top.appendChild(h);
       }
       grid.appendChild(top);
@@ -901,12 +946,12 @@
       for (let r = 0; r < rows.length; r++) {
         const row = document.createElement('div'); row.className = 'kmap-row';
         const left = document.createElement('div'); left.className = 'kmap-cell kmap-header';
-        if (state.n >= 3) left.textContent = rows[r].toString(2).padStart(2, '0');
-        else if (state.n === 2) left.textContent = rows[r].toString();
+        if (rBits >= 2) left.textContent = rows[r].toString(2).padStart(rBits, '0');
+        else if (rBits === 1) left.textContent = rows[r].toString();
         else left.textContent = '';
         row.appendChild(left);
         for (let c = 0; c < cols.length; c++) {
-          const m = KMapCore.cellToMinterm(r, c, state.n);
+          const m = KMapCore.cellToMinterm(r, c, state.n, state.kmapLayout);
           const cell = document.createElement('div'); cell.className = 'kmap-cell';
           cell.dataset.minterm = m;
           const v = state.kmapDraft ? state.kmapDraft[m] : null;
@@ -936,12 +981,12 @@
         return c ? +c.dataset.minterm : null;
       }
       function rectFromCells(m1, m2) {
-        const a = KMapCore.mintermToCell(m1, state.n);
-        const b = KMapCore.mintermToCell(m2, state.n);
+        const a = KMapCore.mintermToCell(m1, state.n, state.kmapLayout);
+        const b = KMapCore.mintermToCell(m2, state.n, state.kmapLayout);
         const r0 = Math.min(a.r, b.r), r1 = Math.max(a.r, b.r);
         const c0 = Math.min(a.c, b.c), c1 = Math.max(a.c, b.c);
         const cells = [];
-        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) cells.push(KMapCore.cellToMinterm(r, c, state.n));
+        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) cells.push(KMapCore.cellToMinterm(r, c, state.n, state.kmapLayout));
         return cells;
       }
       function setDragPreview(m1, m2) {
@@ -975,11 +1020,11 @@
       const { startM, lastM, hadMove, wrap } = state.dragging;
       if (wrap) wrap.querySelectorAll('.kmap-cell.dragging').forEach(c => c.classList.remove('dragging'));
       if (hadMove) {
-        const a = KMapCore.mintermToCell(startM, state.n);
-        const b = KMapCore.mintermToCell(lastM, state.n);
+        const a = KMapCore.mintermToCell(startM, state.n, state.kmapLayout);
+        const b = KMapCore.mintermToCell(lastM, state.n, state.kmapLayout);
         const r0 = Math.min(a.r, b.r), r1 = Math.max(a.r, b.r);
         const c0 = Math.min(a.c, b.c), c1 = Math.max(a.c, b.c);
-        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) state.pendingSelection.add(KMapCore.cellToMinterm(r, c, state.n));
+        for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) state.pendingSelection.add(KMapCore.cellToMinterm(r, c, state.n, state.kmapLayout));
         updatePendingHighlight();
         state._suppressClick = true;
         setTimeout(() => { state._suppressClick = false; }, 0);
@@ -1009,6 +1054,43 @@
       const body = document.getElementById('step3Body');
       body.innerHTML = '';
       renderExprBanner('step3Body');
+
+      if (state.n >= 2) {
+        const layouts = enumerateLayouts(state.n);
+        const sel = document.createElement('div');
+        sel.style.cssText = 'margin-bottom: 12px; font-size: 14px;';
+        sel.innerHTML = `
+          <label>K-map layout:
+            <select id="layoutSelect">
+              ${layouts.map(l => `<option value="${l.rowVars.join(',')}|${l.colVars.join(',')}">${formatLayout(l, state.varNames)}</option>`).join('')}
+            </select>
+          </label>
+          <span style="color: #888; margin-left: 8px;">— changes how variables are arranged on rows vs columns</span>
+        `;
+        body.appendChild(sel);
+        // Set the current selection
+        const cur = `${state.kmapLayout.rowVars.join(',')}|${state.kmapLayout.colVars.join(',')}`;
+        document.getElementById('layoutSelect').value = cur;
+        document.getElementById('layoutSelect').addEventListener('change', e => {
+          const [rStr, cStr] = e.target.value.split('|');
+          const rowVars = rStr ? rStr.split(',').map(Number) : [];
+          const colVars = cStr.split(',').map(Number);
+          state.kmapLayout = { rowVars, colVars };
+          // Layout change preserves data (state.kmapDraft is minterm-indexed). Just re-render.
+          // But manual groups' rects need to be recomputed under the new layout.
+          state.solverGroups = state.solverGroups.map(g => ({
+            ...g,
+            rects: KMapCore.groupRects(g.minterms, state.n, state.kmapLayout),
+          }));
+          state.manualGroups = state.manualGroups.map(g => ({
+            ...g,
+            rects: KMapCore.groupRects(g.minterms, state.n, state.kmapLayout),
+          }));
+          cascadeChange(3); // any later step needs to reflect the new layout
+          renderAll();
+        });
+      }
+
       const wrap = buildKmapElement('edit');
       body.appendChild(wrap);
 
@@ -1156,6 +1238,7 @@
       const errEl = document.getElementById('step1ExprErr');
       errEl.textContent = '';
       state.n = parseInt(document.getElementById('varCount').value, 10);
+      state.kmapLayout = KMapCore.defaultLayout(state.n);
       state.varNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
       state.values = Array(1 << state.n).fill('X');
       state.answerKey = null;

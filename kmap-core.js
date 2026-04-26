@@ -5,29 +5,84 @@
   'use strict';
 
   const GRAY2 = [0, 1, 3, 2];
+  const GRAY3 = [0, 1, 3, 2, 6, 7, 5, 4];
 
-  function rowsCols(n) {
-    if (n === 1) return { rows: [0],   cols: [0,1] };
-    if (n === 2) return { rows: [0,1], cols: [0,1] };
-    if (n === 3) return { rows: [0,1], cols: GRAY2.slice() };
-    return         { rows: GRAY2.slice(), cols: GRAY2.slice() };
+  function grayCode(idx, bits) {
+    if (bits === 0) return 0;
+    if (bits === 1) return idx;       // identity
+    if (bits === 2) return GRAY2[idx];
+    if (bits === 3) return GRAY3[idx];
+    throw new Error(`grayCode: unsupported bits=${bits}`);
   }
 
-  function cellToMinterm(r, c, n) {
-    const { rows, cols } = rowsCols(n);
-    const rBits = rows[r], cBits = cols[c];
-    if (n === 1) return cBits;
-    if (n === 2) return (rBits << 1) | cBits;
-    return (rBits << 2) | cBits; // n=3 or n=4
+  function grayIndex(value, bits) {
+    if (bits === 0) return 0;
+    if (bits === 1) return value;
+    if (bits === 2) return GRAY2.indexOf(value);
+    if (bits === 3) return GRAY3.indexOf(value);
+    throw new Error(`grayIndex: unsupported bits=${bits}`);
   }
 
-  function mintermToCell(m, n) {
-    const { rows, cols } = rowsCols(n);
-    let rBits, cBits;
-    if (n === 1) { rBits = 0;            cBits = m & 1; }
-    else if (n === 2) { rBits = (m>>1)&1; cBits = m & 1; }
-    else { rBits = (m >> 2) & 3;  cBits = m & 3; }
-    return { r: rows.indexOf(rBits), c: cols.indexOf(cBits) };
+  function defaultLayout(n) {
+    if (n === 1) return { rowVars: [],     colVars: [0] };
+    if (n === 2) return { rowVars: [0],    colVars: [1] };
+    if (n === 3) return { rowVars: [0],    colVars: [1, 2] };
+    if (n === 4) return { rowVars: [0, 1], colVars: [2, 3] };
+    throw new Error(`defaultLayout: unsupported n=${n}`);
+  }
+
+  function rowsCols(n, layout) {
+    layout = layout || defaultLayout(n);
+    const rBits = layout.rowVars.length;
+    const cBits = layout.colVars.length;
+    const rows = (rBits === 0) ? [0] : Array.from({ length: 1 << rBits }, (_, i) => grayCode(i, rBits));
+    const cols = Array.from({ length: 1 << cBits }, (_, i) => grayCode(i, cBits));
+    return { rows, cols };
+  }
+
+  function cellToMinterm(r, c, n, layout) {
+    layout = layout || defaultLayout(n);
+    const rBits = layout.rowVars.length;
+    const cBits = layout.colVars.length;
+    const rGray = (rBits === 0) ? 0 : grayCode(r, rBits);
+    const cGray = grayCode(c, cBits);
+    let m = 0;
+    // Scatter row bits into the minterm at each rowVar's position
+    // rGray's MSB corresponds to layout.rowVars[0]
+    for (let i = 0; i < rBits; i++) {
+      const varIdx = layout.rowVars[i];
+      const bit = (rGray >> (rBits - 1 - i)) & 1;
+      m |= bit << (n - 1 - varIdx);
+    }
+    // Same for columns
+    for (let i = 0; i < cBits; i++) {
+      const varIdx = layout.colVars[i];
+      const bit = (cGray >> (cBits - 1 - i)) & 1;
+      m |= bit << (n - 1 - varIdx);
+    }
+    return m;
+  }
+
+  function mintermToCell(m, n, layout) {
+    layout = layout || defaultLayout(n);
+    const rBits = layout.rowVars.length;
+    const cBits = layout.colVars.length;
+    // Gather row bits from m at each rowVar's position
+    let rGray = 0;
+    for (let i = 0; i < rBits; i++) {
+      const varIdx = layout.rowVars[i];
+      const bit = (m >> (n - 1 - varIdx)) & 1;
+      rGray |= bit << (rBits - 1 - i);
+    }
+    let cGray = 0;
+    for (let i = 0; i < cBits; i++) {
+      const varIdx = layout.colVars[i];
+      const bit = (m >> (n - 1 - varIdx)) & 1;
+      cGray |= bit << (cBits - 1 - i);
+    }
+    const r = (rBits === 0) ? 0 : grayIndex(rGray, rBits);
+    const c = grayIndex(cGray, cBits);
+    return { r, c };
   }
 
   function popcount(x){ x = x - ((x>>1)&0x55555555); x = (x&0x33333333) + ((x>>2)&0x33333333); return (((x + (x>>4)) & 0x0F0F0F0F) * 0x01010101) >> 24; }
@@ -64,12 +119,12 @@
     return '(' + lits.join('+') + ')';
   }
 
-  function groupRects(minterms, n) {
-    const cells = minterms.map(m => mintermToCell(m, n));
+  function groupRects(minterms, n, layout) {
+    const cells = minterms.map(m => mintermToCell(m, n, layout));
     const rs = [...new Set(cells.map(c => c.r))].sort((a,b)=>a-b);
     const cs = [...new Set(cells.map(c => c.c))].sort((a,b)=>a-b);
-    const totalRows = rowsCols(n).rows.length;
-    const totalCols = rowsCols(n).cols.length;
+    const totalRows = rowsCols(n, layout).rows.length;
+    const totalCols = rowsCols(n, layout).cols.length;
     function splitRanges(arr, total) {
       if (arr.length === total) return [{ start: 0, len: total }];
       if (arr[arr.length-1] - arr[0] === arr.length - 1) return [{ start: arr[0], len: arr.length }];
@@ -403,5 +458,5 @@
     return { expression, groups };
   }
 
-  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr, generatePrimes, findMinimumCover, solve };
+  return { GRAY2, GRAY3, grayCode, grayIndex, defaultLayout, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr, generatePrimes, findMinimumCover, solve };
 }));
