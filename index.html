@@ -412,11 +412,19 @@
           <button id="solvePosBtn">Solve 0s (POS)</button>
           <button id="clearBtn">Clear</button>
         </div>
+        <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee;">
+          <button id="continueVerifyBtn">Continue to check your solution →</button>
+        </div>
       `);
 
       document.getElementById('solveSopBtn').addEventListener('click', () => doSolve('SOP'));
       document.getElementById('solvePosBtn').addEventListener('click', () => doSolve('POS'));
       document.getElementById('clearBtn').addEventListener('click', clearMap);
+      document.getElementById('continueVerifyBtn').addEventListener('click', () => {
+        state.step = 5;
+        document.getElementById('step5').classList.remove('disabled');
+        renderAll();
+      });
 
       renderManualPanel();
     }
