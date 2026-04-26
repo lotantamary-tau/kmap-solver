@@ -540,6 +540,120 @@
     .edit-link:hover { text-decoration: underline; }
     .edit-link.active { color: var(--error); font-weight: 600; }
 
+    /* === Step 1 fields === */
+    .field-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+    .field-row:first-of-type { margin-top: 0; }
+    .field-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-2);
+      min-width: 132px;
+    }
+
+    /* === iOS-style segmented control === */
+    .segmented {
+      position: relative;
+      display: inline-flex;
+      background: #EEE9DD;
+      padding: 3px;
+      border-radius: 9px;
+      gap: 0;
+      isolation: isolate;
+    }
+    .segmented-option {
+      position: relative;
+      z-index: 2;
+      background: transparent;
+      border: none;
+      padding: 7px 22px;
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-2);
+      cursor: pointer;
+      border-radius: 7px;
+      transition: color 0.18s ease;
+      box-shadow: none;
+    }
+    .segmented-option:hover:not(:disabled) {
+      transform: none;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      box-shadow: none;
+    }
+    .segmented-option.is-active {
+      color: var(--text);
+      font-weight: 600;
+    }
+    .segmented-thumb {
+      position: absolute;
+      z-index: 1;
+      top: 3px;
+      bottom: 3px;
+      left: 3px;
+      width: calc(50% - 3px);
+      background: var(--surface);
+      border-radius: 7px;
+      box-shadow: 0 1px 2px rgba(31, 27, 22, 0.06), 0 2px 5px rgba(31, 27, 22, 0.08);
+      transition: transform 0.24s cubic-bezier(0.32, 0.72, 0.36, 1);
+    }
+    .segmented[data-path="truthtable"] .segmented-thumb {
+      transform: translateX(100%);
+    }
+
+    /* === Path panels === */
+    .path-panel {
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      animation: pathFadeIn 0.28s ease both;
+    }
+    .path-panel.is-hidden { display: none; }
+    @keyframes pathFadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .path-panel #exprInput { width: 320px; max-width: 100%; font-family: var(--font-mono); }
+    .path-hint {
+      font-size: 12.5px;
+      color: var(--text-3);
+      margin: 8px 0 14px;
+      line-height: 1.5;
+    }
+    .path-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .or-divider {
+      font-size: 12px;
+      color: var(--text-3);
+      letter-spacing: 0.04em;
+      text-transform: lowercase;
+      padding: 0 4px;
+    }
+
+    /* Treat the path-panel "Continue" buttons and Random as primary/secondary */
+    button#emptyTtBtn {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: var(--shadow-sm);
+    }
+    button#emptyTtBtn:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      box-shadow: var(--shadow-md);
+    }
+
     /* === Error bar === */
     #errBar {
       font-family: var(--font-ui);
@@ -577,34 +691,55 @@
 
   <section id="step1" class="step">
     <h2>Step 1 — Variables</h2>
-    <label>How many variables?
+
+    <div class="field-row">
+      <label class="field-label" for="varCount">How many variables?</label>
       <select id="varCount">
         <option value="1">1</option>
         <option value="2">2</option>
         <option value="3">3</option>
         <option value="4" selected>4</option>
       </select>
-    </label>
-    <div style="margin-top: 8px;">
-      Names: <span class="name-inputs" id="nameInputs"></span>
     </div>
-    <div style="margin-top: 14px;">
-      <strong style="font-size: 13px;">Quick start (optional):</strong>
-      <div style="margin-top: 6px;">
-        <button id="randomFnBtn">🎲 Random function</button>
-        <span style="font-size: 12px; color: #888; margin-left: 4px;">— picks a random expression and puts it in the box below; F column stays empty for you to fill in (Check truth table works against it)</span>
-      </div>
-      <div style="margin-top: 6px;">
-        <button id="randomTtBtn">🎲 Random truth table</button>
-        <span style="font-size: 12px; color: #888; margin-left: 4px;">— fills the truth table with random 0/1 bits; no answer key (pure K-map practice)</span>
-      </div>
+
+    <div class="field-row">
+      <label class="field-label">Names</label>
+      <span class="name-inputs" id="nameInputs"></span>
     </div>
-    <div style="margin-top: 12px;">
-      <label>Expression (optional): <input id="exprInput" type="text" style="width: 320px;" placeholder="e.g. A'B + AC"></label>
-      <div class="err" id="step1ExprErr"></div>
-    </div>
+
     <div class="err" id="step1Err"></div>
-    <button id="continueBtn" style="margin-top: 12px;">Continue</button>
+
+    <div class="field-row" style="margin-top: 20px;">
+      <label class="field-label">Starting point</label>
+      <div class="segmented" role="tablist" id="startingPointToggle">
+        <button class="segmented-option is-active" data-path="expression" type="button" role="tab" aria-selected="true">Expression</button>
+        <button class="segmented-option" data-path="truthtable" type="button" role="tab" aria-selected="false">Truth table</button>
+        <span class="segmented-thumb"></span>
+      </div>
+    </div>
+
+    <div class="path-panel" id="pathExpression">
+      <div class="field-row">
+        <label class="field-label" for="exprInput">Boolean expression</label>
+        <input id="exprInput" type="text" placeholder="e.g. A'B + AC" autocomplete="off">
+      </div>
+      <div class="err" id="step1ExprErr"></div>
+      <p class="path-hint">F column starts empty in Step 2 — fill it manually with the answer key locked in for Check.</p>
+      <div class="path-actions">
+        <button id="continueBtn" type="button">Continue with this expression →</button>
+        <span class="or-divider">or</span>
+        <button id="randomFnBtn" type="button">🎲 Random function</button>
+      </div>
+    </div>
+
+    <div class="path-panel is-hidden" id="pathTruthTable">
+      <p class="path-hint">Fill the truth table from scratch — no answer key, pure K-map practice.</p>
+      <div class="path-actions">
+        <button id="emptyTtBtn" type="button">Start with empty truth table →</button>
+        <span class="or-divider">or</span>
+        <button id="randomTtBtn" type="button">🎲 Random truth table</button>
+      </div>
+    </div>
   </section>
 
   <section id="step2" class="step disabled">
@@ -755,10 +890,8 @@
       state._step5VerifyRendered = false;
       state._step6Rendered = false;
       state.step = 2;
-      document.getElementById('step2').classList.remove('disabled');
+      state.maxStep = 2;
       for (let i = 3; i <= 6; i++) {
-        const el = document.getElementById('step' + i);
-        if (el) el.classList.add('disabled');
         const body = document.getElementById('step' + i + 'Body');
         if (body) body.innerHTML = '';
       }
@@ -1861,7 +1994,10 @@
       else if (new Set(names).size !== names.length) err = 'Names must be unique.';
       else if (names.some(s => RESERVED.has(s))) err = 'Names cannot be AND, OR, or NOT.';
       errEl.textContent = err;
-      document.getElementById('continueBtn').disabled = !!err;
+      ['continueBtn', 'randomFnBtn', 'emptyTtBtn', 'randomTtBtn'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = !!err;
+      });
       return !err;
     }
 
@@ -1869,28 +2005,57 @@
       cascadeChange(1);
       renderNameInputs();  // existing behavior — re-renders the name inputs
     });
+    // Expression path: requires a valid expression. Sets answer key, F=all X.
     document.getElementById('continueBtn').addEventListener('click', () => {
       if (!validateStep1()) return;
-      // Cascade: any later step is now stale because state.n / state.varNames / state.values / state.answerKey are about to be rewritten.
-      cascadeChange(1);
       const exprSrc = document.getElementById('exprInput').value.trim();
       const errEl = document.getElementById('step1ExprErr');
       errEl.textContent = '';
+      if (!exprSrc) {
+        errEl.textContent = 'Type an expression, or use 🎲 Random function, or switch to the Truth table path.';
+        return;
+      }
+      const tempVarNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
+      const r = KMapCore.parseExpression(exprSrc, tempVarNames);
+      if (!r.ok) { errEl.textContent = r.error; return; }
+
+      cascadeChange(1);
       state.n = parseInt(document.getElementById('varCount').value, 10);
       state.kmapLayout = KMapCore.defaultLayout(state.n);
-      state.varNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
+      state.varNames = tempVarNames;
+      state.values = Array(1 << state.n).fill('X');
+      const evaluated = [];
+      for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
+      state.answerKey = { expression: exprSrc, evaluated };
+      state.step = 2;
+      renderAll();
+    });
+
+    // Truth-table path: empty F, no answer key.
+    document.getElementById('emptyTtBtn').addEventListener('click', () => {
+      if (!_commitStep1ForRandom()) return;
       state.values = Array(1 << state.n).fill('X');
       state.answerKey = null;
-      if (exprSrc) {
-        const r = KMapCore.parseExpression(exprSrc, state.varNames);
-        if (!r.ok) { errEl.textContent = r.error; return; }
-        const evaluated = [];
-        for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
-        state.answerKey = { expression: exprSrc, evaluated };
-      }
-      state.step = 2;
-      document.getElementById('step2').classList.remove('disabled');
       renderAll();
+    });
+
+    // Segmented "Starting point" toggle.
+    function setStartingPoint(path) {
+      const toggle = document.getElementById('startingPointToggle');
+      toggle.dataset.path = path;
+      toggle.querySelectorAll('.segmented-option').forEach(b => {
+        const isActive = b.dataset.path === path;
+        b.classList.toggle('is-active', isActive);
+        b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+      document.getElementById('pathExpression').classList.toggle('is-hidden', path !== 'expression');
+      document.getElementById('pathTruthTable').classList.toggle('is-hidden', path !== 'truthtable');
+      // Clear any stale path-local error when switching paths.
+      const exprErr = document.getElementById('step1ExprErr');
+      if (exprErr) exprErr.textContent = '';
+    }
+    document.querySelectorAll('#startingPointToggle .segmented-option').forEach(btn => {
+      btn.addEventListener('click', () => setStartingPoint(btn.dataset.path));
     });
 
     function updateBreadcrumb() {
