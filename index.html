@@ -78,6 +78,7 @@
       manualMode: false, pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
       _step4Rendered: false,
+      _step5Rendered: false,
     };
 
     function renderTruthTable() {
@@ -130,10 +131,11 @@
       document.getElementById('checkTtBtn').addEventListener('click', checkTruthTable);
       document.getElementById('buildKmapBtn').addEventListener('click', () => {
         state.kmapBuilt = true;
-        state.step = 4;
+        state.step = 5;
         state.kmapDraft = Array(1 << state.n).fill(null);
         document.getElementById('step3').classList.remove('disabled');
         document.getElementById('step4').classList.remove('disabled');
+        document.getElementById('step5').classList.remove('disabled');
         renderAll();
       });
       if (state.answerKey) document.getElementById('checkTtBtn').disabled = false;
@@ -156,7 +158,12 @@
         }
         renderOverlays();
       }
-      // Step 5 added in Task 14.
+      if (state.step >= 5) {
+        if (!state._step5Rendered) {
+          renderStep5();
+          state._step5Rendered = true;
+        }
+      }
     }
 
     function renderStep4() {
@@ -399,6 +406,85 @@
       else lines.push(`Minimality: your cover uses ${state.manualGroups.length} groups (${userLits} literals); minimum is ${ref.groups.length} (${refLits} literals)`);
 
       out.textContent = lines.join('\n');
+    }
+
+    function renderStep5() {
+      const body = document.getElementById('step5Body');
+      body.innerHTML = `
+        <button id="dlPngBtn">Download PNG</button>
+        <button id="dlPdfBtn">Download PDF</button>
+        <span class="err" id="exportErr" style="margin-left: 12px;"></span>
+      `;
+      document.getElementById('dlPngBtn').addEventListener('click', downloadPng);
+      document.getElementById('dlPdfBtn').addEventListener('click', downloadPdf);
+    }
+
+    async function snapshotSections() {
+      if (typeof window.html2canvas !== 'function') {
+        throw new Error('Export libs failed to load — check your internet connection.');
+      }
+      const step2 = document.getElementById('step2');
+      const step3 = document.getElementById('step3');
+      const c2 = await window.html2canvas(step2, { scale: 2, backgroundColor: '#ffffff' });
+      const c3 = await window.html2canvas(step3, { scale: 2, backgroundColor: '#ffffff' });
+      const resultExpr = document.getElementById('resultExpr');
+      let cExpr = null;
+      if (resultExpr && resultExpr.textContent.trim()) {
+        const tmp = document.createElement('div');
+        tmp.style.padding = '12px 20px';
+        tmp.style.background = '#fff';
+        tmp.style.fontFamily = 'monospace';
+        tmp.style.fontSize = '20px';
+        tmp.style.position = 'fixed';
+        tmp.style.left = '-10000px';
+        tmp.style.top = '0';
+        tmp.textContent = resultExpr.textContent;
+        document.body.appendChild(tmp);
+        cExpr = await window.html2canvas(tmp, { scale: 2, backgroundColor: '#ffffff' });
+        document.body.removeChild(tmp);
+      }
+      const w = Math.max(c2.width, c3.width, cExpr ? cExpr.width : 0);
+      const h = c2.height + c3.height + (cExpr ? cExpr.height : 0);
+      const out = document.createElement('canvas');
+      out.width = w; out.height = h;
+      const ctx = out.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, w, h);
+      let y = 0;
+      ctx.drawImage(c2, 0, y); y += c2.height;
+      ctx.drawImage(c3, 0, y); y += c3.height;
+      if (cExpr) ctx.drawImage(cExpr, 0, y);
+      return out;
+    }
+
+    async function downloadPng() {
+      const errEl = document.getElementById('exportErr');
+      errEl.textContent = '';
+      try {
+        const canvas = await snapshotSections();
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = `kmap-${state.varNames.join('')}.png`;
+        a.click();
+      } catch (e) {
+        errEl.textContent = e.message || 'Export failed.';
+      }
+    }
+
+    async function downloadPdf() {
+      const errEl = document.getElementById('exportErr');
+      errEl.textContent = '';
+      try {
+        if (!window.jspdf) throw new Error('Export libs failed to load — check your internet connection.');
+        const canvas = await snapshotSections();
+        const img = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({ unit: 'pt', format: [canvas.width, canvas.height] });
+        pdf.addImage(img, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save(`kmap-${state.varNames.join('')}.pdf`);
+      } catch (e) {
+        errEl.textContent = e.message || 'Export failed.';
+      }
     }
 
     function renderKmap() {
