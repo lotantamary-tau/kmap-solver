@@ -105,6 +105,10 @@
 </head>
 <body>
   <h1>K-Map Solver</h1>
+  <div style="margin-bottom: 12px;">
+    <button id="randomFnBtn" disabled>🎲 Random function</button>
+    <span style="font-size: 12px; color: #888; margin-left: 8px;">— loads a random truth table for practice (available after Step 1)</span>
+  </div>
   <div class="breadcrumb" id="breadcrumb">
     <span class="active">1. Variables</span>
     <span>→</span><span>2. Truth table</span>
@@ -224,6 +228,46 @@
       }
 
       renderAll();
+    }
+
+    function practiceRandom() {
+      if (state.step < 2) return; // button should be disabled, but defensive
+      // Random 0/1 function (no don't-cares)
+      state.values = Array.from({ length: 1 << state.n }, () => Math.random() < 0.5 ? 0 : 1);
+      state.kmapDraft = state.values.slice();
+      state.kmapBuilt = true;
+      // Clear answer key + groups + verification — random functions don't have an expression
+      state.answerKey = null;
+      state.solverGroups = [];
+      state.manualGroups = [];
+      state.solveMode = null;
+      state.solverExpression = null;
+      state.solutionVerified = false;
+      state.verifiedExpression = null;
+      if (state.pendingSelection) state.pendingSelection.clear();
+      // Reset render flags
+      state._step4Rendered = false;
+      state._step5VerifyRendered = false;
+      state._step6Rendered = false;
+      // Land on Step 3
+      state.step = 3;
+      document.getElementById('step2').classList.remove('disabled');
+      document.getElementById('step3').classList.remove('disabled');
+      for (let i = 4; i <= 6; i++) {
+        const el = document.getElementById('step' + i);
+        if (el) el.classList.add('disabled');
+        const body = document.getElementById('step' + i + 'Body');
+        if (body) body.innerHTML = '';
+      }
+      // Also clear the expression input on Step 1 so the banner doesn't show a stale answer key
+      const exprInput = document.getElementById('exprInput');
+      if (exprInput) exprInput.value = '';
+      renderAll();
+    }
+
+    function updateRandomButton() {
+      const btn = document.getElementById('randomFnBtn');
+      if (btn) btn.disabled = state.step < 2;
     }
 
     const RESERVED = new Set(['AND','OR','NOT','and','or','not']);
@@ -346,6 +390,7 @@
         }
       }
       updateBreadcrumb();
+      updateRandomButton();
     }
 
     function renderStep4() {
@@ -432,13 +477,6 @@
     function clearMap() {
       state.values.fill('X');
       if (state.kmapDraft) state.kmapDraft.fill(null);
-      cascadeChange(2);
-      renderAll();
-    }
-
-    function randomFill() {
-      for (let i = 0; i < state.values.length; i++) state.values[i] = Math.random() < 0.5 ? 0 : 1;
-      if (state.kmapDraft) for (let i = 0; i < state.kmapDraft.length; i++) state.kmapDraft[i] = state.values[i];
       cascadeChange(2);
       renderAll();
     }
@@ -1128,6 +1166,7 @@
 
     renderNameInputs();
     updateBreadcrumb();
+    document.getElementById('randomFnBtn').addEventListener('click', practiceRandom);
 
     // CDN fallback check
     window.addEventListener('load', () => {
