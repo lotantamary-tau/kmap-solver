@@ -438,7 +438,7 @@
       renderOverlays();
     }
 
-    function renderOverlays() {
+    function renderOverlays(forceLabels) {
       const overlay = document.getElementById('kmapOverlay');
       if (!overlay) return;
       overlay.innerHTML = '';
@@ -467,8 +467,8 @@
           div.style.borderColor = g.color;
           div.style.backgroundColor = withAlpha(g.color, 0.18);
           div.title = g.term;
-          // Show label only on the first rect of the group AND only when verified
-          if (ri === 0 && state.solutionVerified) {
+          // Show label only on the first rect of the group; visible when verified or forced (during export)
+          if (ri === 0 && (state.solutionVerified || forceLabels)) {
             const label = document.createElement('span');
             label.className = 'rect-label';
             label.style.color = g.color;
@@ -761,9 +761,17 @@
 
     async function snapshotKmap() {
       if (typeof window.html2canvas !== 'function') throw new Error('Export libs failed to load — check your internet connection.');
-      const km = document.querySelector('#step3Body .kmap');
+      // Prefer Step 4's K-map (has the colored overlays). Fall back to Step 3's K-map if Step 4 hasn't been opened.
+      let km = document.querySelector('#step4KmapContainer .kmap');
+      if (!km) km = document.querySelector('#step3Body .kmap');
       if (!km) throw new Error('K-map not built yet.');
-      return window.html2canvas(km, { scale: 2, backgroundColor: '#ffffff' });
+      // Force overlay labels to render for the snapshot, then restore the live state.
+      renderOverlays(true);
+      try {
+        return await window.html2canvas(km, { scale: 2, backgroundColor: '#ffffff' });
+      } finally {
+        renderOverlays();
+      }
     }
 
     async function downloadTruthTablePng() {
@@ -830,8 +838,18 @@
 
         const img = composite.toDataURL('image/png');
         const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({ unit: 'pt', format: [composite.width / scale, composite.height / scale] });
-        pdf.addImage(img, 'PNG', 0, 0, composite.width / scale, composite.height / scale);
+        // Fit content to a single A4 page (portrait or landscape based on aspect ratio)
+        const portrait = composite.height > composite.width;
+        const PAGE_W = portrait ? 595 : 842; // A4 in pt
+        const PAGE_H = portrait ? 842 : 595;
+        const margin = 24;
+        const fitScale = Math.min((PAGE_W - margin * 2) / composite.width, (PAGE_H - margin * 2) / composite.height);
+        const renderW = composite.width * fitScale;
+        const renderH = composite.height * fitScale;
+        const offsetX = (PAGE_W - renderW) / 2;
+        const offsetY = (PAGE_H - renderH) / 2;
+        const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: portrait ? 'portrait' : 'landscape' });
+        pdf.addImage(img, 'PNG', offsetX, offsetY, renderW, renderH);
         pdf.save(`kmap-${state.varNames.join('')}.pdf`);
       } catch (e) {
         errEl.textContent = e.message || 'Export failed.';
