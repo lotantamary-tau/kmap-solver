@@ -796,6 +796,92 @@
       border-top: 1px solid var(--border);
     }
 
+    /* === Runaway-Yes confirmation modal (Reveal Answer + Fill F) === */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(31, 27, 22, 0.42);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: modalFadeIn 0.18s ease both;
+    }
+    .modal-box {
+      position: relative;
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      padding: 28px 32px;
+      min-width: 380px;
+      max-width: 500px;
+      min-height: 200px;
+      box-shadow: 0 20px 60px rgba(31, 27, 22, 0.25);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      color: var(--text);
+      animation: modalBoxIn 0.22s cubic-bezier(0.32, 0.72, 0.36, 1) both;
+    }
+    .modal-box h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      font-weight: 600;
+    }
+    .modal-box p {
+      margin: 0 0 22px;
+      color: var(--text-2);
+      line-height: 1.55;
+    }
+    .modal-actions {
+      position: relative;
+      height: 90px;
+    }
+    .modal-cancel,
+    .modal-yes {
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 9px 18px;
+      border-radius: var(--radius-md);
+      border: 1px solid;
+      cursor: pointer;
+      box-shadow: var(--shadow-sm);
+      transition: background 0.15s, border-color 0.15s, transform 0.18s ease-out;
+    }
+    .modal-cancel {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .modal-cancel:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+    .modal-yes {
+      position: absolute;
+      top: 0;
+      left: 200px;
+      background: var(--error);
+      border-color: var(--error);
+      color: #fff;
+    }
+    .modal-yes:hover { background: #991B1B; border-color: #991B1B; }
+    .modal-yes.given-up {
+      animation: modalYesGiveUp 0.5s ease;
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes modalBoxIn {
+      from { opacity: 0; transform: scale(0.95) translateY(8px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    @keyframes modalYesGiveUp {
+      0%   { transform: scale(1); }
+      40%  { transform: scale(0.92); }
+      100% { transform: scale(1); }
+    }
+
     /* === Error bar === */
     #errBar {
       font-family: var(--font-ui);
@@ -1068,7 +1154,7 @@
         const rfn = document.getElementById('randomFnBtn');
         if (rfn) rfn.addEventListener('click', practiceRandomFunction);
         const af = document.getElementById('autoFillBtn');
-        if (af) af.addEventListener('click', autoFillFromExpression);
+        if (af) af.addEventListener('click', openAutoFillPrank);
         const ck = document.getElementById('checkTtBtn');
         if (ck) ck.addEventListener('click', checkTruthTable);
       } else {
@@ -1747,36 +1833,56 @@
       }
     }
 
-    function openRevealPrank() {
-      // Modal overlay with two buttons. The "Yes" button runs away from the cursor.
+    // Generic runaway-Yes confirmation modal.
+    // opts: { title, message, yesText, cancelText, onConfirm, maxEscapes }
+    //   maxEscapes (default Infinity): how many dodges before the Yes button stops moving and lets you click.
+    //   onConfirm: called when the user actually catches and clicks Yes. Omit for prank-only modals.
+    function openRunawayConfirm(opts) {
+      const {
+        title,
+        message,
+        yesText = 'Yes',
+        cancelText = 'Cancel',
+        onConfirm,
+        maxEscapes = Infinity,
+      } = opts;
+
       const overlay = document.createElement('div');
-      overlay.id = 'revealOverlay';
-      overlay.style.cssText = 'position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 200; display: flex; align-items: center; justify-content: center;';
+      overlay.className = 'modal-overlay';
       const box = document.createElement('div');
-      box.style.cssText = 'position: relative; background: #fff; border-radius: 10px; padding: 28px 32px; min-width: 360px; min-height: 200px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); font-size: 15px;';
+      box.className = 'modal-box';
       box.innerHTML = `
-        <h3 style="margin: 0 0 8px;">Are you sure?</h3>
-        <p style="margin: 0 0 20px; color: #444;">You want to reveal the answer?</p>
-        <div style="position: relative; height: 80px;">
-          <button id="revealCancelBtn" style="background: #1d9bf0; color: #fff; border: 1px solid #1d9bf0; padding: 8px 16px; border-radius: 6px;">Cancel</button>
-          <button id="revealYesBtn" style="position: absolute; top: 0; left: 200px; background: #e63946; color: #fff; border: 1px solid #e63946; padding: 8px 16px; border-radius: 6px;">Yes, reveal it</button>
+        <h3>${title}</h3>
+        <p>${message}</p>
+        <div class="modal-actions">
+          <button class="modal-cancel" type="button">${cancelText}</button>
+          <button class="modal-yes" type="button">${yesText}</button>
         </div>
       `;
       overlay.appendChild(box);
       document.body.appendChild(overlay);
 
-      const yes = document.getElementById('revealYesBtn');
-      const cancel = document.getElementById('revealCancelBtn');
+      const yes = box.querySelector('.modal-yes');
+      const cancel = box.querySelector('.modal-cancel');
+
+      let escapes = 0;
 
       function dodge(mouseX, mouseY) {
+        if (escapes >= maxEscapes) return; // given up
         const r = yes.getBoundingClientRect();
         const cx = r.left + r.width / 2;
         const cy = r.top + r.height / 2;
         const dx = mouseX - cx;
         const dy = mouseY - cy;
         const dist = Math.hypot(dx, dy);
-        if (dist > 100) return; // out of trigger range
-        // Pick a random new position within the box, away from the cursor and the cancel button
+        if (dist > 100) return;
+
+        escapes++;
+        if (escapes >= maxEscapes) {
+          yes.classList.add('given-up');
+          return;
+        }
+
         const boxRect = box.getBoundingClientRect();
         const cancelRect = cancel.getBoundingClientRect();
         const yesW = r.width, yesH = r.height;
@@ -1787,7 +1893,6 @@
           ny = padding + Math.random() * (boxRect.height - yesH - padding * 2);
           tries++;
           if (tries > 30) break;
-          // Ensure it's far from cursor and not overlapping cancel
           const absX = boxRect.left + nx + yesW / 2;
           const absY = boxRect.top + ny + yesH / 2;
           const farFromCursor = Math.hypot(absX - mouseX, absY - mouseY) > 140;
@@ -1807,7 +1912,6 @@
       window.addEventListener('mousemove', onMove);
       window.addEventListener('touchstart', onTouch, { passive: true });
       window.addEventListener('touchmove', onTouch, { passive: true });
-      // Also dodge if the user keyboard-tabs to it
       yes.addEventListener('focus', () => dodge(window.innerWidth / 2, window.innerHeight / 2));
 
       function close() {
@@ -1816,9 +1920,60 @@
         window.removeEventListener('touchmove', onTouch);
         overlay.remove();
       }
+
       cancel.addEventListener('click', close);
-      // Defensive: even if the user somehow lands on Yes, just close (don't actually reveal)
-      yes.addEventListener('click', close);
+      yes.addEventListener('click', () => {
+        close();
+        if (onConfirm) onConfirm();
+      });
+    }
+
+    // Performs the actual reveal: solves SOP/POS, marks verified, fills overlays, shows the answer.
+    // Called by the xyzzy/!reveal secret phrase AND by the caught Reveal Answer button.
+    function revealAnswer() {
+      const sop = KMapCore.solve(state.values, state.n, 'SOP', state.varNames);
+      const pos = KMapCore.solve(state.values, state.n, 'POS', state.varNames);
+      state.solutionVerified = true;
+      state.verifiedExpression = sop.expression;
+      if (state.solverGroups.length === 0) {
+        state.solverGroups = sop.groups.map((g, i) => ({ ...g, color: paletteColor(i) }));
+        state.solveMode = 'SOP';
+        state.solverExpression = sop.expression;
+      }
+      const cont = document.getElementById('continueExportBtn');
+      if (cont) cont.disabled = false;
+      const out = document.getElementById('verifyResult');
+      if (out) {
+        out.style.color = 'var(--accent)';
+        out.textContent = `🤫 Answer revealed:\n  • SOP: F = ${sop.expression}\n  • POS: F = ${pos.expression}`;
+      }
+      renderOverlays();
+      renderManualGroupList();
+    }
+
+    // Reveal Answer (Step 5): runaway with 8-attempt cap, like Fill F. Catch it = reveal.
+    // The secret xyzzy phrase still works as a backdoor that bypasses the prank entirely.
+    function openRevealPrank() {
+      openRunawayConfirm({
+        title: 'Are you sure?',
+        message: 'You want to reveal the answer?',
+        yesText: 'Yes, reveal it',
+        cancelText: 'Cancel',
+        maxEscapes: 8,
+        onConfirm: revealAnswer,
+      });
+    }
+
+    // Skip-practice prank for "Fill F from expression" (Step 2): gives up after 8 escapes.
+    function openAutoFillPrank() {
+      openRunawayConfirm({
+        title: 'Skip the practice?',
+        message: 'This fills the F column automatically from the expression. You\'ll lose the manual practice.',
+        yesText: 'Yes, fill it for me',
+        cancelText: 'No, I\'ll do it',
+        maxEscapes: 8,
+        onConfirm: autoFillFromExpression,
+      });
     }
 
     function verifyUserExpression() {
@@ -1828,21 +1983,7 @@
       // Secret: typing the magic phrase reveals the minimal SOP/POS answer and marks verified.
       // (Phrase: xyzzy — classic adventure-game magic word.)
       if (/^(xyzzy|!reveal)$/i.test(src)) {
-        const sop = KMapCore.solve(state.values, state.n, 'SOP', state.varNames);
-        const pos = KMapCore.solve(state.values, state.n, 'POS', state.varNames);
-        state.solutionVerified = true;
-        state.verifiedExpression = sop.expression;
-        // If no solver groups exist yet, populate them so the K-map reveals the SOP grouping
-        if (state.solverGroups.length === 0) {
-          state.solverGroups = sop.groups.map((g, i) => ({ ...g, color: paletteColor(i) }));
-          state.solveMode = 'SOP';
-          state.solverExpression = sop.expression;
-        }
-        document.getElementById('continueExportBtn').disabled = false;
-        out.style.color = '#a06';
-        out.textContent = `🤫 Secret revealed:\n  • SOP: F = ${sop.expression}\n  • POS: F = ${pos.expression}`;
-        renderOverlays();
-        renderManualGroupList();
+        revealAnswer();
         return;
       }
       const r = KMapCore.parseExpression(src, state.varNames);
