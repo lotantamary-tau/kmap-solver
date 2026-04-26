@@ -64,6 +64,10 @@
     <div style="margin-top: 8px;">
       Names: <span class="name-inputs" id="nameInputs"></span>
     </div>
+    <div style="margin-top: 12px;">
+      <label>Expression (optional): <input id="exprInput" type="text" style="width: 320px;" placeholder="e.g. A'B + AC"></label>
+      <div class="err" id="step1ExprErr"></div>
+    </div>
     <div class="err" id="step1Err"></div>
     <button id="continueBtn" style="margin-top: 12px;">Continue</button>
   </section>
@@ -122,9 +126,20 @@
       _exportReady: true,
     };
 
+    function renderExprBanner(bodyId) {
+      if (!state.answerKey) return;
+      const body = document.getElementById(bodyId);
+      if (!body) return;
+      const banner = document.createElement('div');
+      banner.style.cssText = 'background: #f0f7ff; border: 1px solid #cfe; border-radius: 4px; padding: 8px 12px; margin-bottom: 12px; font-family: monospace; font-size: 14px;';
+      banner.textContent = `F(${state.varNames.join(',')}) = ${state.answerKey.expression}`;
+      body.prepend(banner);
+    }
+
     function renderTruthTable() {
       const body = document.getElementById('step2Body');
       body.innerHTML = '';
+      renderExprBanner('step2Body');
       const tbl = document.createElement('table');
       tbl.className = 'truthTable';
       const thead = document.createElement('thead');
@@ -158,17 +173,14 @@
       const exprWrap = document.createElement('div');
       exprWrap.style.marginTop = '12px';
       exprWrap.innerHTML = `
-  <label>Expression: <input id="exprInput" type="text" style="width: 300px;" placeholder="${state.varNames.join('')} + ${state.varNames[0]}'..."></label>
-  <button id="autoFillBtn">Auto-fill F column</button>
-  <button id="setKeyBtn">Set as answer key</button>
-  <button id="checkTtBtn" disabled>Check truth table</button>
+  <button id="autoFillBtn" ${!state.answerKey ? 'disabled' : ''}>Fill F from expression</button>
+  <button id="checkTtBtn" ${!state.answerKey ? 'disabled' : ''}>Check truth table</button>
   <span class="err" id="exprErr"></span>
   <span id="checkTtResult" style="margin-left: 12px; font-size: 13px;"></span>
   <button id="buildKmapBtn" style="margin-left: 24px;">Build K-map</button>
 `;
       body.appendChild(exprWrap);
-      document.getElementById('autoFillBtn').addEventListener('click', () => applyExpression('autofill'));
-      document.getElementById('setKeyBtn').addEventListener('click', () => applyExpression('answerkey'));
+      document.getElementById('autoFillBtn').addEventListener('click', autoFillFromExpression);
       document.getElementById('checkTtBtn').addEventListener('click', checkTruthTable);
       document.getElementById('buildKmapBtn').addEventListener('click', () => {
         state.kmapBuilt = true;
@@ -179,7 +191,6 @@
         document.getElementById('step5').classList.remove('disabled');
         renderAll();
       });
-      if (state.answerKey) document.getElementById('checkTtBtn').disabled = false;
     }
 
     function cycleF(m) {
@@ -210,7 +221,9 @@
 
     function renderStep4() {
       const body = document.getElementById('step4Body');
-      body.innerHTML = `
+      body.innerHTML = '';
+      renderExprBanner('step4Body');
+      body.insertAdjacentHTML('beforeend', `
         <button id="solveSopBtn">Solve 1s (SOP)</button>
         <button id="solvePosBtn">Solve 0s (POS)</button>
         <button id="clearBtn">Clear</button>
@@ -218,7 +231,7 @@
         <label style="margin-left: 16px;"><input type="checkbox" id="manualMode"> Manual mode</label>
         <div id="resultExpr" style="margin-top: 12px; font-family: monospace; font-size: 16px;"></div>
         <div id="manualPanel" style="display: none; margin-top: 12px;"></div>
-      `;
+      `);
       document.getElementById('solveSopBtn').addEventListener('click', () => doSolve('SOP'));
       document.getElementById('solvePosBtn').addEventListener('click', () => doSolve('POS'));
       document.getElementById('clearBtn').addEventListener('click', clearMap);
@@ -452,11 +465,13 @@
 
     function renderStep5() {
       const body = document.getElementById('step5Body');
-      body.innerHTML = `
+      body.innerHTML = '';
+      renderExprBanner('step5Body');
+      body.insertAdjacentHTML('beforeend', `
         <button id="dlPngBtn">Download PNG</button>
         <button id="dlPdfBtn">Download PDF</button>
         <span class="err" id="exportErr" style="margin-left: 12px;"></span>
-      `;
+      `);
       document.getElementById('dlPngBtn').addEventListener('click', downloadPng);
       document.getElementById('dlPdfBtn').addEventListener('click', downloadPdf);
       if (!state._exportReady) {
@@ -537,6 +552,7 @@
       if (!state.kmapBuilt) return;
       const body = document.getElementById('step3Body');
       body.innerHTML = '';
+      renderExprBanner('step3Body');
       const { rows, cols } = KMapCore.rowsCols(state.n);
       const wrap = document.createElement('div'); wrap.className = 'kmap';
       const grid = document.createElement('div');
@@ -637,20 +653,10 @@
         `${pass} / ${state.values.length} correct` + (wrong.length ? ` — wrong: m=${wrong.join(',')}` : '');
     }
 
-    function applyExpression(mode) {
-      const src = document.getElementById('exprInput').value;
-      const errEl = document.getElementById('exprErr');
-      const r = KMapCore.parseExpression(src, state.varNames);
-      if (!r.ok) { errEl.textContent = r.error; return; }
-      errEl.textContent = '';
-      const evaluated = [];
-      for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
-      if (mode === 'autofill') {
-        for (let m = 0; m < evaluated.length; m++) state.values[m] = evaluated[m];
-        state.solverGroups = [];
-      }
-      state.answerKey = { expression: src, evaluated };
-      document.getElementById('checkTtBtn').disabled = false;
+    function autoFillFromExpression() {
+      if (!state.answerKey) return;
+      for (let m = 0; m < state.values.length; m++) state.values[m] = state.answerKey.evaluated[m];
+      state.solverGroups = [];
       renderAll();
     }
 
@@ -701,9 +707,20 @@
     document.getElementById('varCount').addEventListener('change', renderNameInputs);
     document.getElementById('continueBtn').addEventListener('click', () => {
       if (!validateStep1()) return;
+      const exprSrc = document.getElementById('exprInput').value.trim();
+      const errEl = document.getElementById('step1ExprErr');
+      errEl.textContent = '';
       state.n = parseInt(document.getElementById('varCount').value, 10);
       state.varNames = [...document.querySelectorAll('#nameInputs input')].map(i => i.value.trim());
       state.values = Array(1 << state.n).fill('X');
+      state.answerKey = null;
+      if (exprSrc) {
+        const r = KMapCore.parseExpression(exprSrc, state.varNames);
+        if (!r.ok) { errEl.textContent = r.error; return; }
+        const evaluated = [];
+        for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
+        state.answerKey = { expression: exprSrc, evaluated };
+      }
       state.step = 2;
       document.getElementById('step2').classList.remove('disabled');
       renderAll();
