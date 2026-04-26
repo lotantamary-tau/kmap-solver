@@ -837,6 +837,26 @@
       const src = document.getElementById('verifyInput').value.trim();
       const out = document.getElementById('verifyResult');
       if (!src) { out.style.color = '#c00'; out.textContent = 'Please type an expression.'; return; }
+      // Secret: typing the magic phrase reveals the minimal SOP/POS answer and marks verified.
+      // (Phrase: xyzzy — classic adventure-game magic word.)
+      if (/^(xyzzy|!reveal)$/i.test(src)) {
+        const sop = KMapCore.solve(state.values, state.n, 'SOP', state.varNames);
+        const pos = KMapCore.solve(state.values, state.n, 'POS', state.varNames);
+        state.solutionVerified = true;
+        state.verifiedExpression = sop.expression;
+        // If no solver groups exist yet, populate them so the K-map reveals the SOP grouping
+        if (state.solverGroups.length === 0) {
+          state.solverGroups = sop.groups.map((g, i) => ({ ...g, color: paletteColor(i) }));
+          state.solveMode = 'SOP';
+          state.solverExpression = sop.expression;
+        }
+        document.getElementById('continueExportBtn').disabled = false;
+        out.style.color = '#a06';
+        out.textContent = `🤫 Secret revealed:\n  • SOP: F = ${sop.expression}\n  • POS: F = ${pos.expression}`;
+        renderOverlays();
+        renderManualGroupList();
+        return;
+      }
       const r = KMapCore.parseExpression(src, state.varNames);
       if (!r.ok) { out.style.color = '#c00'; out.textContent = 'Parse error: ' + r.error; return; }
       // Compare evaluated expression vs state.values for every minterm.
