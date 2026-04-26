@@ -32,3 +32,27 @@ test('classic 4-var: m={4,8,9,10,11,12,13,14,15} n=4 yields 2 primes', () => {
   const p = generatePrimes([4,8,9,10,11,12,13,14,15], 4);
   assert(p.length >= 2, `expected ≥2 primes, got ${p.length}`);
 });
+
+const { findMinimumCover } = require('../kmap-core.js');
+
+test('cover: m={1,3} n=3 → single prime cover (essential)', () => {
+  const r = findMinimumCover([1,3], [], 3);
+  assertEqual(r.length, 1);
+});
+test('cover: classic 4-var → 2 primes (A + BC\'D\')', () => {
+  const r = findMinimumCover([4,8,9,10,11,12,13,14,15], [], 4);
+  assertEqual(r.length, 2);
+});
+test('cover with don\'t cares: ones={1,3,7,11,15} X={0,2,5} → 2 primes', () => {
+  const r = findMinimumCover([1,3,7,11,15], [0,2,5], 4);
+  assertEqual(r.length, 2);
+});
+test('cover: empty ones → empty cover', () => {
+  const r = findMinimumCover([], [], 3);
+  assertEqual(r.length, 0);
+});
+test('cover: all 1s → single all-dashed prime', () => {
+  const r = findMinimumCover([0,1,2,3], [], 2);
+  assertEqual(r.length, 1);
+  assertEqual(r[0].dashes, 0b11);
+});

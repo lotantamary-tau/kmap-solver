@@ -289,6 +289,84 @@
     return primes.map(p => ({ mask: p.mask, dashes: p.dashes, mints: p.mints }));
   }
 
+  function findMinimumCover(ones, dontCares, n) {
+    if (ones.length === 0) return [];
+    const allTerms = [...ones, ...dontCares];
+    const primes = generatePrimes(allTerms, n);
+
+    // Build chart: m -> [primeIdx] for minterms in ones
+    const required = new Set(ones);
+    const chart = new Map();
+    for (const m of ones) chart.set(m, []);
+    primes.forEach((p, i) => {
+      for (const m of p.mints) if (required.has(m)) chart.get(m).push(i);
+    });
+
+    // Step 3: pull essentials — any minterm covered by exactly one prime
+    const essentialIdx = new Set();
+    for (const [m, idxs] of chart) {
+      if (idxs.length === 1) essentialIdx.add(idxs[0]);
+    }
+    const covered = new Set();
+    for (const i of essentialIdx) for (const m of primes[i].mints) covered.add(m);
+
+    // Step 4: remaining required minterms after essentials
+    const remaining = ones.filter(m => !covered.has(m));
+    if (remaining.length === 0) {
+      return [...essentialIdx].map(i => primes[i]);
+    }
+
+    // Step 5: Petrick's method
+    // products = list of bitmasks (each bitmask is a product term = set of prime indices)
+    let products = [0]; // start with the single empty product
+    for (const m of remaining) {
+      const sumMasks = [];
+      for (const idx of chart.get(m)) {
+        if (essentialIdx.has(idx)) continue; // already handled
+        sumMasks.push(1 << idx);
+      }
+      if (sumMasks.length === 0) continue; // defensive
+
+      // Multiply current products by this sum: cartesian OR
+      const next = new Set();
+      for (const p of products) for (const s of sumMasks) next.add(p | s);
+
+      // Absorption: remove any bitmask that is a strict superset of another
+      const arr = [...next];
+      arr.sort((a, b) => popcount(a) - popcount(b));
+      const minimal = [];
+      for (const x of arr) {
+        let absorbed = false;
+        for (const y of minimal) {
+          if ((x & y) === y) { absorbed = true; break; }
+        }
+        if (!absorbed) minimal.push(x);
+      }
+      products = minimal;
+    }
+
+    // Pick the product with fewest primes; tiebreak: fewest total literals
+    function literalCount(mask) {
+      let total = 0;
+      for (let i = 0; i < primes.length; i++) {
+        if (mask & (1 << i)) total += n - popcount(primes[i].dashes);
+      }
+      return total;
+    }
+    let best = products[0];
+    for (const p of products) {
+      const dp = popcount(p), db = popcount(best);
+      if (dp < db || (dp === db && literalCount(p) < literalCount(best))) best = p;
+    }
+
+    // Build result: essentials + Petrick-selected primes
+    const result = [...essentialIdx].map(i => primes[i]);
+    for (let i = 0; i < primes.length; i++) {
+      if (best & (1 << i)) result.push(primes[i]);
+    }
+    return result;
+  }
+
   function evaluateExpr(ast, minterm, n) {
     switch (ast.op) {
       case 'CONST': return ast.value;
@@ -300,5 +378,5 @@
     }
   }
 
-  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr, generatePrimes };
+  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr, generatePrimes, findMinimumCover };
 }));
