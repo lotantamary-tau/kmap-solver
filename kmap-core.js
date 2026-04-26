@@ -259,6 +259,36 @@
     }
   }
 
+  function generatePrimes(minterms, n) {
+    if (minterms.length === 0) return [];
+    let terms = minterms.map(m => ({ mask: m, dashes: 0, mints: [m], used: false }));
+    const primes = [];
+    const seen = new Set();
+    while (terms.length) {
+      const next = [];
+      const usedThisPass = new Set();
+      for (let i = 0; i < terms.length; i++) for (let j = i+1; j < terms.length; j++) {
+        const a = terms[i], b = terms[j];
+        if (a.dashes !== b.dashes) continue;
+        const diff = a.mask ^ b.mask;
+        if (popcount(diff) !== 1) continue;
+        if ((a.mask & ~a.dashes & ~diff) !== (b.mask & ~b.dashes & ~diff)) continue;
+        const merged = {
+          mask: a.mask & ~diff,
+          dashes: a.dashes | diff,
+          mints: [...new Set([...a.mints, ...b.mints])].sort((x,y)=>x-y),
+          used: false,
+        };
+        const key = `${merged.mask}|${merged.dashes}`;
+        if (!seen.has(key)) { seen.add(key); next.push(merged); }
+        usedThisPass.add(i); usedThisPass.add(j);
+      }
+      for (let i = 0; i < terms.length; i++) if (!usedThisPass.has(i)) primes.push(terms[i]);
+      terms = next;
+    }
+    return primes.map(p => ({ mask: p.mask, dashes: p.dashes, mints: p.mints }));
+  }
+
   function evaluateExpr(ast, minterm, n) {
     switch (ast.op) {
       case 'CONST': return ast.value;
@@ -270,5 +300,5 @@
     }
   }
 
-  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr };
+  return { GRAY2, rowsCols, cellToMinterm, mintermToCell, popcount, isValidCube, extractTerm, groupRects, parseExpression, evaluateExpr, generatePrimes };
 }));
