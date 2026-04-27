@@ -550,11 +550,12 @@
       line-height: 1.5;
       z-index: 1;
     }
-    /* Stagger labels around the rect perimeter so adjacent groups don't collide. */
-    .kmap-overlay .rect-label.label-tl { top: -11px; left: 10px; }
-    .kmap-overlay .rect-label.label-tr { top: -11px; right: 10px; }
-    .kmap-overlay .rect-label.label-bl { bottom: -11px; left: 10px; }
-    .kmap-overlay .rect-label.label-br { bottom: -11px; right: 10px; }
+    /* Mid-edge label positions — symmetric on the rect outline. Staggered
+       across the four edges by group index so adjacent groups don't overlap. */
+    .kmap-overlay .rect-label.label-tc { top: -11px;    left: 50%; transform: translateX(-50%); }
+    .kmap-overlay .rect-label.label-bc { bottom: -11px; left: 50%; transform: translateX(-50%); }
+    .kmap-overlay .rect-label.label-lc { left: 0;       top: 50%;  transform: translate(-50%, -50%); }
+    .kmap-overlay .rect-label.label-rc { right: 0;      top: 50%;  transform: translate(50%, -50%); }
 
     /* === Pending / dragging === */
     .kmap-cell.pending {
@@ -2412,35 +2413,43 @@
         if (!overlay) return;
         overlay.innerHTML = '';
         if (all.length === 0) return;
+        // Use offsetLeft/offsetTop (relative to the .kmap padding edge, which
+        // is the same coordinate system as the absolutely-positioned overlay
+        // anchored at top:0/left:0). Avoids drift from getBoundingClientRect
+        // when the overlay's own rect grows to enclose its absolute children.
         const cells = container.querySelectorAll('.kmap-cell[data-minterm]');
-        const cellRects = {};
+        const cellPos = {};
         cells.forEach(cell => {
           const m = +cell.dataset.minterm;
           const { r, c } = KMapCore.mintermToCell(m, state.n, state.kmapLayout);
-          cellRects[`${r},${c}`] = cell.getBoundingClientRect();
+          cellPos[`${r},${c}`] = {
+            left: cell.offsetLeft,
+            top: cell.offsetTop,
+            width: cell.offsetWidth,
+            height: cell.offsetHeight,
+          };
         });
-        // Anchor to the overlay's own viewport rect so child rects (also
-        // position:absolute inside the overlay) line up with cells regardless
-        // of the .kmap parent's padding or border thickness.
-        const overlayRect = overlay.getBoundingClientRect();
         all.forEach((g, gi) => {
           g.rects.forEach((rc, ri) => {
-            const tl = cellRects[`${rc.r0},${rc.c0}`];
-            const br = cellRects[`${rc.r0 + rc.h - 1},${rc.c0 + rc.w - 1}`];
+            const tl = cellPos[`${rc.r0},${rc.c0}`];
+            const br = cellPos[`${rc.r0 + rc.h - 1},${rc.c0 + rc.w - 1}`];
             if (!tl || !br) return;
             const div = document.createElement('div');
             div.className = 'rect';
             div.dataset.groupIndex = String(gi);
-            div.style.left = (tl.left - overlayRect.left - 3) + 'px';
-            div.style.top = (tl.top - overlayRect.top - 3) + 'px';
-            div.style.width = (br.right - tl.left + 6) + 'px';
-            div.style.height = (br.bottom - tl.top + 6) + 'px';
+            div.style.left = (tl.left - 3) + 'px';
+            div.style.top = (tl.top - 3) + 'px';
+            div.style.width = (br.left + br.width - tl.left + 6) + 'px';
+            div.style.height = (br.top + br.height - tl.top + 6) + 'px';
             div.style.borderColor = g.color;
             div.style.backgroundColor = withAlpha(g.color, 0.18);
             div.title = g.term;
             if (ri === 0 && (state.solutionVerified || forceLabels)) {
               const label = document.createElement('span');
-              const positions = ['label-tl', 'label-tr', 'label-bl', 'label-br'];
+              // Mid-edge positions: top-center, right-center, bottom-center, left-center.
+              // Symmetric on the rect outline; staggered by group index so adjacent
+              // groups don't collide on the same edge.
+              const positions = ['label-tc', 'label-rc', 'label-bc', 'label-lc'];
               label.className = 'rect-label ' + positions[gi % positions.length];
               label.style.color = g.color;
               label.textContent = g.term;
@@ -3331,7 +3340,7 @@
         const canvas = await snapshotTruthTable();
         const a = document.createElement('a');
         a.href = canvas.toDataURL('image/png');
-        a.download = `truth-table-${state.varNames.join('')}.png`;
+        a.download = `kmap-solver-truth-table-${state.varNames.join('')}.png`;
         a.click();
       } catch (e) {
         errEl.textContent = e.message || 'Export failed.';
@@ -3345,7 +3354,7 @@
         const canvas = await snapshotKmap();
         const a = document.createElement('a');
         a.href = canvas.toDataURL('image/png');
-        a.download = `kmap-${state.varNames.join('')}.png`;
+        a.download = `kmap-solver-kmap-${state.varNames.join('')}.png`;
         a.click();
       } catch (e) {
         errEl.textContent = e.message || 'Export failed.';
@@ -3400,7 +3409,7 @@
         const offsetY = (PAGE_H - renderH) / 2;
         const pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: portrait ? 'portrait' : 'landscape' });
         pdf.addImage(img, 'PNG', offsetX, offsetY, renderW, renderH);
-        pdf.save(`kmap-${state.varNames.join('')}.pdf`);
+        pdf.save(`kmap-solver-${state.varNames.join('')}.pdf`);
       } catch (e) {
         errEl.textContent = e.message || 'Export failed.';
       }
