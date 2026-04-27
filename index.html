@@ -235,15 +235,58 @@
       margin-bottom: 20px;
     }
     .step-header h2 { margin: 0; }
-    .reset-link {
+    .reset-link,
+    .edit-link {
       font-size: 12px;
       color: var(--text-3);
       text-decoration: none;
       padding: 4px 10px;
       border-radius: 6px;
       transition: all 0.15s;
+      cursor: pointer;
     }
     .reset-link:hover { color: var(--error); background: var(--error-soft); }
+    .edit-link:hover { color: var(--accent); background: var(--accent-soft); }
+    .step-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    /* Edit button only shown on locked (previously-completed) steps. */
+    .step:not(.is-locked) .edit-link { display: none; }
+
+    /* Locked-step UI: dim and disable interactive elements; show a hint banner. */
+    .step.is-locked::before {
+      content: '🔒 Locked — click Edit above to make changes (this will discard your work in later steps).';
+      display: block;
+      margin: 0 0 16px;
+      padding: 10px 14px;
+      background: var(--surface-soft);
+      border: 1px dashed var(--border-strong);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      color: var(--text-2);
+    }
+    .step.is-locked .name-inputs input,
+    .step.is-locked .step-tools button,
+    .step.is-locked .step-tools-fallback button,
+    .step.is-locked .pending-bar button,
+    .step.is-locked .group-chip,
+    .step.is-locked .group-chip .remove,
+    .step.is-locked .segmented-option,
+    .step.is-locked select,
+    .step.is-locked input[type="text"],
+    .step.is-locked .kmap-cell[data-minterm],
+    .step.is-locked .expr-banner-action,
+    .step.is-locked .export-card button {
+      pointer-events: none;
+      opacity: 0.55;
+    }
+    /* Continue button stays clickable on locked steps so the user can navigate forward. */
+    .step.is-locked .step-advance button {
+      pointer-events: auto;
+      opacity: 1;
+    }
 
     /* === Buttons === */
     button {
@@ -495,8 +538,6 @@
     }
     .kmap-overlay .rect-label {
       position: absolute;
-      top: -11px;
-      left: 10px;
       background: #fff;
       padding: 1px 8px;
       font-family: var(--font-mono);
@@ -507,7 +548,13 @@
       white-space: nowrap;
       border: 1.5px solid currentColor;
       line-height: 1.5;
+      z-index: 1;
     }
+    /* Stagger labels around the rect perimeter so adjacent groups don't collide. */
+    .kmap-overlay .rect-label.label-tl { top: -11px; left: 10px; }
+    .kmap-overlay .rect-label.label-tr { top: -11px; right: 10px; }
+    .kmap-overlay .rect-label.label-bl { bottom: -11px; left: 10px; }
+    .kmap-overlay .rect-label.label-br { bottom: -11px; right: 10px; }
 
     /* === Pending / dragging === */
     .kmap-cell.pending {
@@ -809,47 +856,43 @@
       padding-top: 0;
     }
 
-    /* === Steps 3/4: helper bubble floats top-right; main content flows in left area === */
-    #step3Body, #step4Body { position: relative; }
-    .step-with-helper {
-      padding-right: 320px; /* room for the floating helper bubble */
-      min-height: 240px;    /* keeps content from collapsing if K-map is small */
+    /* === Steps 3/4: K-map and helper bubble side by side in a flex row.
+       Tools/advance below extend full width so dotted lines and the Continue
+       button reach the actual edges of the card. === */
+    .kmap-bubble-row {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      margin: 18px 0 22px;
     }
-    .step-helper-corner {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 300px;
-      max-width: 38%;
-      z-index: 2;
-    }
-    .workbench-kmap {
-      margin: 18px 0;
+    .kmap-bubble-row .workbench-kmap {
+      flex: 1 1 auto;
+      min-width: 280px;
+      margin: 0;
       animation: kmapSettleIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
+    }
+    .kmap-bubble-row .helper-bubble {
+      flex: 0 0 300px;
+      max-width: 320px;
     }
     .workbench-kmap h4 {
       margin: 0 0 10px;
     }
-    @media (max-width: 920px) {
-      .step-with-helper { padding-right: 0; }
-      .step-helper-corner {
-        position: static;
-        width: auto;
-        max-width: none;
-        margin-bottom: 18px;
-      }
+    @media (max-width: 880px) {
+      .kmap-bubble-row .helper-bubble { flex: 1 1 auto; max-width: none; }
     }
 
-    /* Helper bubble: visually integrated with the step card — no separate frame.
-       Just sits in the corner with a thin left divider so it reads as the same
-       surface, not a detached panel. */
+    /* Helper bubble — warm-tinted card sized to host given expression + truth table.
+       Lives as a flex sibling of the K-map (in .kmap-bubble-row), so all step
+       content above and below extends full width without splitting the card. */
     .helper-bubble {
-      background: transparent;
-      border: none;
-      border-left: 1px solid var(--border);
-      border-radius: 0;
-      padding: 0 0 0 18px;
-      box-shadow: none;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-lg);
+      padding: 14px 18px 16px;
+      box-shadow: var(--shadow-sm);
     }
     /* Flatten the banner when it lives inside the helper bubble — the bubble
        is the visual frame; the banner just contributes content. */
@@ -957,6 +1000,15 @@
     .success-overlay.is-leaving .success-badge {
       animation: successFadeOut 0.45s ease both;
     }
+    /* "Cheated" badge — same vibe as success but amber/shame instead of green. */
+    .cheat-badge {
+      background: linear-gradient(135deg, #B45309, #D97706);
+      box-shadow:
+        0 24px 60px rgba(180, 83, 9, 0.45),
+        0 8px 24px rgba(180, 83, 9, 0.3),
+        inset 0 -6px 14px rgba(0, 0, 0, 0.12),
+        inset 0 6px 14px rgba(255, 255, 255, 0.2);
+    }
     @keyframes successPop {
       0%   { opacity: 0; transform: scale(0.3) rotate(-12deg); }
       55%  { opacity: 1; transform: scale(1.18) rotate(3deg); }
@@ -993,6 +1045,12 @@
       border-color: rgba(185, 28, 28, 0.2);
       border-left-color: var(--error);
       color: var(--error);
+    }
+    .verify-result.cheated {
+      background: rgba(217, 119, 6, 0.08);
+      border-color: rgba(180, 83, 9, 0.3);
+      border-left-color: #B45309;
+      color: #92400E;
     }
 
     /* === Step 6 export cards === */
@@ -1183,15 +1241,8 @@
       display: flex;
       justify-content: flex-end;
     }
-    /* When step-advance lives inside a step that reserves right-padding for the
-       helper bubble, escape that padding so Continue anchors at the actual
-       bottom-right corner of the card. */
-    .step-with-helper > .step-advance {
-      margin-right: -320px;
-    }
-    @media (max-width: 920px) {
-      .step-with-helper > .step-advance { margin-right: 0; }
-    }
+    /* (Helper bubble lives in flow now; .step-advance no longer needs a negative
+       margin to escape any reserved right-padding.) */
 
     /* === Runaway-Yes confirmation modal (Reveal Answer + Fill F) === */
     .modal-overlay {
@@ -1444,7 +1495,13 @@
   </button>
 
   <section id="step1" class="step">
-    <h2>Step 1 — Variables</h2>
+    <div class="step-header">
+      <h2>Step 1 — Variables</h2>
+      <div class="step-actions">
+        <a href="#" class="edit-link" data-step="1">Edit</a>
+        <a href="#" class="reset-link" data-step="1">Reset</a>
+      </div>
+    </div>
     <p class="step-note">Pick how many variables you'll work with and what to call them.</p>
 
     <div class="field-row">
@@ -1472,35 +1529,50 @@
   <section id="step2" class="step disabled">
     <div class="step-header">
       <h2>Step 2 — Setup</h2>
-      <a href="#" class="reset-link" data-step="2">Reset this step</a>
+      <div class="step-actions">
+        <a href="#" class="edit-link" data-step="2">Edit</a>
+        <a href="#" class="reset-link" data-step="2">Reset</a>
+      </div>
     </div>
     <div id="step2Body"></div>
   </section>
   <section id="step3" class="step disabled">
     <div class="step-header">
       <h2>Step 3 — K-map</h2>
-      <a href="#" class="reset-link" data-step="3">Reset this step</a>
+      <div class="step-actions">
+        <a href="#" class="edit-link" data-step="3">Edit</a>
+        <a href="#" class="reset-link" data-step="3">Reset</a>
+      </div>
     </div>
     <div id="step3Body"></div>
   </section>
   <section id="step4" class="step disabled">
     <div class="step-header">
       <h2>Step 4 — Group</h2>
-      <a href="#" class="reset-link" data-step="4">Reset this step</a>
+      <div class="step-actions">
+        <a href="#" class="edit-link" data-step="4">Edit</a>
+        <a href="#" class="reset-link" data-step="4">Reset</a>
+      </div>
     </div>
     <div id="step4Body"></div>
   </section>
   <section id="step5" class="step disabled">
     <div class="step-header">
       <h2>Step 5 — Check your solution</h2>
-      <a href="#" class="reset-link" data-step="5">Reset this step</a>
+      <div class="step-actions">
+        <a href="#" class="edit-link" data-step="5">Edit</a>
+        <a href="#" class="reset-link" data-step="5">Reset</a>
+      </div>
     </div>
     <div id="step5Body"></div>
   </section>
   <section id="step6" class="step disabled">
     <div class="step-header">
       <h2>Step 6 — Export</h2>
-      <a href="#" class="reset-link" data-step="6">Reset this step</a>
+      <div class="step-actions">
+        <a href="#" class="edit-link" data-step="6">Edit</a>
+        <a href="#" class="reset-link" data-step="6">Reset</a>
+      </div>
     </div>
     <div id="step6Body"></div>
   </section>
@@ -2048,8 +2120,11 @@
         if (prevEl && prevEl.classList.contains('is-current')) {
           prevEl.classList.add('is-leaving');
           _stepTransitionTimer = setTimeout(() => {
-            prevEl.classList.remove('is-leaving', 'is-current');
-            if (curEl) curEl.classList.add('is-current');
+            prevEl.classList.remove('is-leaving', 'is-current', 'is-locked');
+            if (curEl) {
+              curEl.classList.add('is-current');
+              curEl.classList.toggle('is-locked', cur < state.maxStep);
+            }
             _stepTransitionTimer = null;
             // K-map cells in the new step were display:none until just now, so
             // their bounding rects were 0×0 when overlays were first drawn.
@@ -2066,6 +2141,9 @@
         const el = document.getElementById('step' + i);
         if (!el) continue;
         el.classList.toggle('is-current', i === cur);
+        // A previously-reached step that is no longer the latest is "locked" —
+        // user must click Edit (or Reset) to make changes.
+        el.classList.toggle('is-locked', i === cur && i < state.maxStep);
       }
       state._prevStep = cur;
       if (typeof renderOverlays === 'function') renderOverlays();
@@ -2092,29 +2170,13 @@
       const polarity = state.solveMode || 'SOP';
       state.solveMode = polarity;
 
-      // Helper bubble — banner + compact truth table, top-right corner.
-      const refSection = document.createElement('div');
-      refSection.className = 'step-helper-corner helper-bubble';
-      if (state.answerKey) refSection.classList.add('has-banner');
-      const tableLabel = document.createElement('h4');
-      tableLabel.textContent = 'Truth table';
-      refSection.appendChild(tableLabel);
-      refSection.appendChild(buildTruthTable({ readOnly: true, compact: true }));
-      body.appendChild(refSection);
-      renderExprBanner(refSection);
-
-      // Main content (right-padded to leave room for the helper bubble).
-      const content = document.createElement('div');
-      content.className = 'step-with-helper';
-      body.appendChild(content);
-
-      // Step note.
+      // Step note (full width).
       const note = document.createElement('p');
       note.className = 'step-note';
       note.textContent = "Group adjacent 1s (SOP) or 0s (POS) on the K-map. Click cells or drag to select, then Confirm. Or use Auto-solve to do it for you.";
-      content.appendChild(note);
+      body.appendChild(note);
 
-      // Polarity segmented control.
+      // Polarity segmented control (full width).
       const polRow = document.createElement('div');
       polRow.className = 'field-row';
       polRow.innerHTML = `
@@ -2125,9 +2187,21 @@
           <span class="segmented-thumb"></span>
         </div>
       `;
-      content.appendChild(polRow);
+      body.appendChild(polRow);
 
-      // K-map section.
+      // Helper bubble — banner + compact truth table.
+      const refSection = document.createElement('div');
+      refSection.className = 'helper-bubble';
+      if (state.answerKey) refSection.classList.add('has-banner');
+      const tableLabel = document.createElement('h4');
+      tableLabel.textContent = 'Truth table';
+      refSection.appendChild(tableLabel);
+      refSection.appendChild(buildTruthTable({ readOnly: true, compact: true }));
+      renderExprBanner(refSection);
+
+      // K-map + helper bubble side by side.
+      const kmRow = document.createElement('div');
+      kmRow.className = 'kmap-bubble-row';
       const kmapSection = document.createElement('div');
       kmapSection.className = 'workbench-kmap';
       const kmapLabel = document.createElement('h4');
@@ -2136,9 +2210,11 @@
       const kmapContainer = document.createElement('div');
       kmapContainer.id = 'step4KmapContainer';
       kmapSection.appendChild(kmapContainer);
-      content.appendChild(kmapSection);
+      kmRow.appendChild(kmapSection);
+      kmRow.appendChild(refSection);
+      body.appendChild(kmRow);
 
-      // Pending selection bar.
+      // Pending selection bar (full width).
       const pending = document.createElement('div');
       pending.className = 'pending-bar';
       pending.innerHTML = `
@@ -2147,18 +2223,18 @@
         <button id="cancelGroupBtn" type="button" class="secondary-btn" disabled>Cancel selection</button>
         <span class="err" id="manualErr"></span>
       `;
-      content.appendChild(pending);
+      body.appendChild(pending);
 
-      // Group list.
+      // Group list (full width).
       const groupsSection = document.createElement('div');
       groupsSection.className = 'groups-section';
       groupsSection.innerHTML = `
         <h4>Your groups</h4>
         <div id="manualGroupList" class="group-list"></div>
       `;
-      content.appendChild(groupsSection);
+      body.appendChild(groupsSection);
 
-      // Tools / fallback / advance.
+      // Tools / fallback / advance (full width).
       const ctrls = document.createElement('div');
       ctrls.innerHTML = `
         <div class="step-tools">
@@ -2179,7 +2255,7 @@
           <button id="continueVerifyBtn" type="button" ${state.groupingVerified ? '' : 'disabled title="Click Check my groups first — Continue unlocks once your groups are valid and match F."'}>Continue →</button>
         </div>
       `;
-      content.appendChild(ctrls);
+      body.appendChild(ctrls);
 
       // Wire handlers.
       document.querySelectorAll('#polarityToggle .segmented-option').forEach(btn => {
@@ -2280,7 +2356,9 @@
       });
       state.solverGroups = [];
       state.solverExpression = r.expression;
-      state.groupingVerified = false;
+      // Auto-solve produces a correct cover by construction, so unlock Continue
+      // immediately — same as Auto-fill F (Step 2) and Auto-fill K-map (Step 3).
+      state.groupingVerified = true;
       if (state.pendingSelection) state.pendingSelection.clear();
       cascadeChange(4);
       renderManualGroupList();
@@ -2326,7 +2404,8 @@
             div.title = g.term;
             if (ri === 0 && (state.solutionVerified || forceLabels)) {
               const label = document.createElement('span');
-              label.className = 'rect-label';
+              const positions = ['label-tl', 'label-tr', 'label-bl', 'label-br'];
+              label.className = 'rect-label ' + positions[gi % positions.length];
               label.style.color = g.color;
               label.textContent = g.term;
               div.appendChild(label);
@@ -2732,23 +2811,38 @@
         const boxRect = box.getBoundingClientRect();
         const actionsRect = box.querySelector('.modal-actions').getBoundingClientRect();
         const cancelRect = cancel.getBoundingClientRect();
+        const giveUpRect = (giveUpWrap && !giveUpWrap.classList.contains('is-hidden'))
+          ? giveUpWrap.getBoundingClientRect() : null;
         const yesW = r.width, yesH = r.height;
-        const padding = 10;
+        const padding = 12;
+        // Random target within the entire modal box (box coords). The Yes button
+        // is position:absolute inside .modal-actions, so we'll translate the box
+        // coords back to actions-relative coords before applying.
+        const offsetX = actionsRect.left - boxRect.left;
+        const offsetY = actionsRect.top - boxRect.top;
         let nx, ny, tries = 0;
         do {
-          nx = padding + Math.random() * (actionsRect.width - yesW - padding * 2);
-          ny = padding + Math.random() * (actionsRect.height - yesH - padding * 2);
+          const xInBox = padding + Math.random() * (boxRect.width - yesW - padding * 2);
+          const yInBox = padding + Math.random() * (boxRect.height - yesH - padding * 2);
+          nx = xInBox - offsetX;
+          ny = yInBox - offsetY;
           tries++;
-          if (tries > 30) break;
-          const absX = actionsRect.left + nx + yesW / 2;
-          const absY = actionsRect.top + ny + yesH / 2;
+          if (tries > 40) break;
+          const absX = boxRect.left + xInBox + yesW / 2;
+          const absY = boxRect.top + yInBox + yesH / 2;
           const farFromCursor = Math.hypot(absX - mouseX, absY - mouseY) > 140;
           const cancelOverlap =
             absX + yesW / 2 > cancelRect.left - 8 &&
             absX - yesW / 2 < cancelRect.right + 8 &&
             absY + yesH / 2 > cancelRect.top - 8 &&
             absY - yesH / 2 < cancelRect.bottom + 8;
-          if (farFromCursor && !cancelOverlap) break;
+          const giveUpOverlap = giveUpRect && (
+            absX + yesW / 2 > giveUpRect.left - 8 &&
+            absX - yesW / 2 < giveUpRect.right + 8 &&
+            absY + yesH / 2 > giveUpRect.top - 8 &&
+            absY - yesH / 2 < giveUpRect.bottom + 8
+          );
+          if (farFromCursor && !cancelOverlap && !giveUpOverlap) break;
         } while (true);
         // Release the right anchor (set in CSS for the initial position) so the
         // explicit left value controls the button's position — otherwise both
@@ -2870,32 +2964,89 @@
       container.appendChild(btn);
     }
 
-    // Performs the actual reveal: solves SOP/POS, marks verified, fills overlays, shows the answer.
-    // Called by the xyzzy/!reveal secret phrase AND by the caught Reveal Answer button.
+    // Performs the actual reveal: solves SOP/POS, marks verified, fills overlays,
+    // auto-fills the verify input with the correct answer, and runs the "cheated"
+    // celebration. Called by the xyzzy/!reveal secret phrase AND by the caught
+    // Reveal Answer button.
     function revealAnswer() {
       const sop = KMapCore.solve(state.values, state.n, 'SOP', state.varNames);
       const pos = KMapCore.solve(state.values, state.n, 'POS', state.varNames);
       state.solutionVerified = true;
       state.verifiedExpression = sop.expression;
-      if (state.solverGroups.length === 0) {
-        state.solverGroups = sop.groups.map((g, i) => ({ ...g, color: paletteColor(i) }));
+      if (state.solverGroups.length === 0 && state.manualGroups.length === 0) {
+        // Populate manual groups so the K-map shows the SOP cover (consistent with
+        // doSolve in Step 4 — groups belong to the user, not a separate solver layer).
+        state.manualGroups = sop.groups.map((g, i) => {
+          const cube = KMapCore.isValidCube(g.minterms, state.n);
+          return {
+            minterms: g.minterms.slice().sort((a, b) => a - b),
+            term: g.term,
+            color: paletteColor(i),
+            rects: KMapCore.groupRects(g.minterms, state.n, state.kmapLayout),
+            andMask: cube.ok ? cube.andMask : 0,
+            freeBits: cube.ok ? cube.freeBits : 0,
+          };
+        });
         state.solveMode = 'SOP';
         state.solverExpression = sop.expression;
       }
+      // Auto-fill the verify input with the correct expression.
+      const inp = document.getElementById('verifyInput');
+      if (inp) inp.value = sop.expression;
       const cont = document.getElementById('continueExportBtn');
       if (cont) cont.disabled = false;
       const out = document.getElementById('verifyResult');
       if (out) {
-        out.classList.remove('error');
-        out.classList.add('success');
+        out.classList.remove('error', 'success');
+        out.classList.add('cheated');
         out.style.color = '';
-        out.textContent = `🤫 Answer revealed:\n  • SOP: F = ${sop.expression}\n  • POS: F = ${pos.expression}`;
+        out.textContent = `🤫 Answer revealed: F = ${sop.expression}\n   (POS form: ${pos.expression})`;
       }
       renderOverlays();
       renderManualGroupList();
+      showCheatCelebration();
     }
 
-    // Step 5 — Reveal Answer. Surrender = three escalating clicks.
+    function showCheatCelebration() {
+      // Subdued "shame" particles instead of celebratory confetti.
+      if (typeof window.confetti === 'function') {
+        const colors = ['#92400E', '#B45309', '#D97706', '#A78BFA', '#6B7280'];
+        window.confetti({
+          particleCount: 35,
+          spread: 60,
+          angle: 60,
+          origin: { x: 0, y: 1 },
+          colors,
+          startVelocity: 35,
+          scalar: 0.85,
+        });
+        window.confetti({
+          particleCount: 35,
+          spread: 60,
+          angle: 120,
+          origin: { x: 1, y: 1 },
+          colors,
+          startVelocity: 35,
+          scalar: 0.85,
+        });
+      }
+      const overlay = document.createElement('div');
+      overlay.className = 'success-overlay cheat-overlay';
+      overlay.innerHTML = `
+        <div class="success-badge cheat-badge">
+          <div class="success-check">🤫</div>
+          <div class="success-text">CHEATED!</div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      setTimeout(() => {
+        overlay.classList.add('is-leaving');
+        setTimeout(() => overlay.remove(), 450);
+      }, 1500);
+    }
+
+    // Step 5 — Reveal Answer. Surrender = three escalating clicks. Each stage is
+    // a deeper plea — the user has to literally beg for the answer (no clue text).
     // Secret xyzzy/!reveal phrase in the verify input still works as a backdoor.
     function openRevealPrank() {
       openRunawayConfirm({
@@ -2905,9 +3056,9 @@
         cancelText: "OK fine, I'll keep trying",
         giveUpKind: 'escalate',
         giveUpStages: [
-          "I'd like a hint…",
-          "OK, just tell me",
-          "Please, I give up 🏳️",
+          'Please?',
+          'Pretty please?',
+          '🥺 Give me a break, please',
         ],
         onConfirm: revealAnswer,
       });
@@ -3029,26 +3180,66 @@
       }, 1500);
     }
 
+    // Temporarily make a hidden step visible offscreen so html2canvas can capture
+    // it. Restores the original styles after the callback resolves.
+    async function withStepVisible(stepId, fn) {
+      const stepEl = document.getElementById(stepId);
+      if (!stepEl) return fn();
+      const isVisible = stepEl.classList.contains('is-current');
+      const prev = {
+        display: stepEl.style.display,
+        position: stepEl.style.position,
+        left: stepEl.style.left,
+        top: stepEl.style.top,
+        opacity: stepEl.style.opacity,
+        visibility: stepEl.style.visibility,
+      };
+      if (!isVisible) {
+        stepEl.style.display = 'block';
+        stepEl.style.position = 'absolute';
+        stepEl.style.left = '-99999px';
+        stepEl.style.top = '0';
+        stepEl.style.opacity = '1';
+        stepEl.style.visibility = 'visible';
+      }
+      try {
+        return await fn();
+      } finally {
+        if (!isVisible) {
+          stepEl.style.display = prev.display;
+          stepEl.style.position = prev.position;
+          stepEl.style.left = prev.left;
+          stepEl.style.top = prev.top;
+          stepEl.style.opacity = prev.opacity;
+          stepEl.style.visibility = prev.visibility;
+        }
+      }
+    }
+
     async function snapshotTruthTable() {
       if (typeof window.html2canvas !== 'function') throw new Error('Export libs failed to load — check your internet connection.');
-      const tbl = document.querySelector('#step2Body table.truthTable');
-      if (!tbl) throw new Error('Truth table not built yet.');
-      return window.html2canvas(tbl, { scale: 2, backgroundColor: '#ffffff' });
+      return withStepVisible('step2', async () => {
+        const tbl = document.querySelector('#step2Body table.truthTable');
+        if (!tbl) throw new Error('Truth table not built yet.');
+        return window.html2canvas(tbl, { scale: 2, backgroundColor: '#ffffff' });
+      });
     }
 
     async function snapshotKmap() {
       if (typeof window.html2canvas !== 'function') throw new Error('Export libs failed to load — check your internet connection.');
       // Prefer Step 4's K-map (has the colored overlays). Fall back to Step 3's K-map if Step 4 hasn't been opened.
-      let km = document.querySelector('#step4KmapContainer .kmap');
-      if (!km) km = document.querySelector('#step3Body .kmap');
-      if (!km) throw new Error('K-map not built yet.');
-      // Force overlay labels to render for the snapshot, then restore the live state.
-      renderOverlays(true);
-      try {
-        return await window.html2canvas(km, { scale: 2, backgroundColor: '#ffffff' });
-      } finally {
-        renderOverlays();
-      }
+      const sourceStepId = document.querySelector('#step4KmapContainer .kmap') ? 'step4' : 'step3';
+      return withStepVisible(sourceStepId, async () => {
+        let km = document.querySelector('#step4KmapContainer .kmap');
+        if (!km) km = document.querySelector('#step3Body .kmap');
+        if (!km) throw new Error('K-map not built yet.');
+        renderOverlays(true);
+        try {
+          return await window.html2canvas(km, { scale: 2, backgroundColor: '#ffffff' });
+        } finally {
+          renderOverlays();
+        }
+      });
     }
 
     async function downloadTruthTablePng() {
@@ -3136,9 +3327,8 @@
     function renderStep6() {
       const body = document.getElementById('step6Body');
       body.innerHTML = '';
-      renderExprBanner(body);
 
-      // Step note.
+      // Step note (no given-expression banner here — only the answer matters).
       const note = document.createElement('p');
       note.className = 'step-note';
       note.textContent = "Download your work to submit. Exports show only the truth table and K-map (with group overlays) — no app chrome, ready for homework.";
@@ -3346,32 +3536,24 @@
       const body = document.getElementById('step3Body');
       body.innerHTML = '';
 
-      // Helper bubble — floats to the top-right corner of the step, doesn't disturb
-      // the main vertical flow. Holds the given expression + compact truth table.
+      // General step note (full width).
+      const note = document.createElement('p');
+      note.className = 'step-note';
+      note.textContent = "Build the K-map from the truth table. Click each cell to cycle 0 → 1 → X.";
+      body.appendChild(note);
+
+      // Helper bubble — banner + compact truth table. Sits in the flex row next to
+      // the K-map so the rest of the card flows full width above/below it.
       const refSection = document.createElement('div');
-      refSection.className = 'step-helper-corner helper-bubble';
+      refSection.className = 'helper-bubble';
       if (state.answerKey) refSection.classList.add('has-banner');
       const tableLabel = document.createElement('h4');
       tableLabel.textContent = 'Truth table';
       refSection.appendChild(tableLabel);
-      const refTable = buildTruthTable({ readOnly: true, compact: true });
-      refSection.appendChild(refTable);
-      body.appendChild(refSection);
+      refSection.appendChild(buildTruthTable({ readOnly: true, compact: true }));
       renderExprBanner(refSection);
 
-      // Main step content lives inside a wrapper with right-padding to reserve
-      // room for the floating helper bubble.
-      const content = document.createElement('div');
-      content.className = 'step-with-helper';
-      body.appendChild(content);
-
-      // General step note.
-      const note = document.createElement('p');
-      note.className = 'step-note';
-      note.textContent = "Build the K-map from the truth table. Click each cell to cycle 0 → 1 → X.";
-      content.appendChild(note);
-
-      // Layout selector — restyled to match the field-row pattern.
+      // Layout selector — full width above the K-map row.
       if (state.n >= 2) {
         const layouts = enumerateLayouts(state.n);
         const sel = document.createElement('div');
@@ -3383,7 +3565,7 @@
           </select>
           <span class="row-hint">Changes how variables are arranged on rows vs columns.</span>
         `;
-        content.appendChild(sel);
+        body.appendChild(sel);
         const cur = `${state.kmapLayout.rowVars.join(',')}|${state.kmapLayout.colVars.join(',')}`;
         document.getElementById('layoutSelect').value = cur;
         document.getElementById('layoutSelect').addEventListener('change', e => {
@@ -3404,16 +3586,20 @@
         });
       }
 
-      // K-map section in the main flow.
+      // K-map + helper bubble side by side.
+      const kmRow = document.createElement('div');
+      kmRow.className = 'kmap-bubble-row';
       const kmapSection = document.createElement('div');
       kmapSection.className = 'workbench-kmap';
       const kmapLabel = document.createElement('h4');
       kmapLabel.textContent = 'K-map';
       kmapSection.appendChild(kmapLabel);
       kmapSection.appendChild(buildKmapElement('edit'));
-      content.appendChild(kmapSection);
+      kmRow.appendChild(kmapSection);
+      kmRow.appendChild(refSection);
+      body.appendChild(kmRow);
 
-      // Tools / fallback / advance.
+      // Tools / fallback / advance — full width below the row.
       const continueLocked = !state.kmapVerified;
       const continueTitle = continueLocked
         ? 'Click Check K-map first — Continue unlocks once all cells match.'
@@ -3438,7 +3624,7 @@
           <button id="continueGroupingBtn" type="button" ${continueLocked ? 'disabled' : ''}${continueLocked ? ` title="${continueTitle}"` : ''}>Continue →</button>
         </div>
       `;
-      content.appendChild(ctrls);
+      body.appendChild(ctrls);
 
       document.getElementById('autoFillKmapBtn').addEventListener('click', openAutoFillKmapPrank);
       document.getElementById('clearKmapBtn').addEventListener('click', clearKmapCells);
@@ -3625,21 +3811,31 @@
     }
 
     function resetFromStep(s) {
-      if (!confirm(`Reset Step ${s} and everything below?`)) return;
+      const downstreamMsg = state.maxStep > s ? ` and discard your work in Steps ${s + 1}–${state.maxStep}` : '';
+      if (!confirm(`Reset Step ${s}${downstreamMsg}?`)) return;
       if (s <= 2) { state.values = state.n ? Array(1 << state.n).fill('X') : []; state.answerKey = null; state.truthTableVerified = false; }
-      if (s <= 3) { state.kmapDraft = null; state.kmapBuilt = false; }
-      if (s <= 4) { state.solverGroups = []; state.manualGroups = []; state.pendingSelection.clear(); state.solveMode = null; }
+      if (s <= 3) { state.kmapDraft = null; state.kmapBuilt = false; state.kmapVerified = false; }
+      if (s <= 4) { state.solverGroups = []; state.manualGroups = []; state.pendingSelection.clear(); state.solveMode = null; state.groupingVerified = false; }
       if (s <= 5) { state.solutionVerified = false; state.verifiedExpression = null; }
       state._step4Rendered = false;
       state._step5VerifyRendered = false;
       state._step6Rendered = false;
-      state.step = Math.max(1, s - 1);
-      state.maxStep = state.step;
-      // Clear bodies of invalidated steps so they re-render fresh next visit.
-      for (let i = s; i <= 6; i++) {
+      state.step = s;
+      state.maxStep = s;
+      for (let i = s + 1; i <= 6; i++) {
         const body = document.getElementById('step' + i + 'Body');
         if (body) body.innerHTML = '';
       }
+      renderAll();
+    }
+
+    function editFromStep(s) {
+      // Edit unlocks a previously-completed step. Keeps that step's content intact
+      // but invalidates everything downstream (cascade). User can then change inputs.
+      if (state.maxStep <= s) return; // already the latest step — nothing to invalidate
+      if (!confirm(`Edit Step ${s}? This will discard your work in Steps ${s + 1}–${state.maxStep}.`)) return;
+      cascadeChange(s);
+      state.step = s;
       renderAll();
     }
 
@@ -3647,6 +3843,12 @@
       a.addEventListener('click', e => {
         e.preventDefault();
         resetFromStep(+a.dataset.step);
+      });
+    });
+    document.querySelectorAll('.edit-link').forEach(a => {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        editFromStep(+a.dataset.step);
       });
     });
 
