@@ -342,13 +342,13 @@
 
     /* === Work surfaces (academic, exportable) === */
 
-    /* Truth table */
+    /* Truth table — default (Step 2): roomy and prominent. */
     table.truthTable {
       border-collapse: collapse;
       margin-top: 12px;
       background: #fff;
       font-family: var(--font-mono);
-      font-size: 13px;
+      font-size: 14px;
       border: 1px solid #1F1B16;
       box-shadow: var(--shadow-sm);
       border-radius: 4px;
@@ -357,9 +357,9 @@
     table.truthTable th,
     table.truthTable td {
       border: 1px solid #B8B0A0;
-      padding: 7px 16px;
+      padding: 9px 24px;
       text-align: center;
-      min-width: 32px;
+      min-width: 40px;
       color: #1F1B16;
     }
     table.truthTable th {
@@ -381,6 +381,22 @@
     table.truthTable td.f:hover { background: #FAF8F2; }
     table.truthTable td.f.x { color: #999; font-style: italic; }
     table.truthTable td.f.wrong { background: var(--error-soft); color: var(--error); }
+
+    /* Compact truth table (Step 3 reference): smaller and tighter. */
+    table.truthTable.compact {
+      font-size: 11.5px;
+      margin-top: 8px;
+      box-shadow: none;
+    }
+    table.truthTable.compact th,
+    table.truthTable.compact td {
+      padding: 4px 11px;
+      min-width: 22px;
+    }
+    table.truthTable.compact th {
+      font-size: 10px;
+      padding: 5px 11px;
+    }
 
     /* K-map */
     .kmap {
@@ -785,13 +801,41 @@
       animation: kmapSettleIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
     }
     .workbench-reference {
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       min-width: 240px;
       display: flex;
       flex-direction: column;
     }
     .workbench-reference h4 {
-      margin-top: 6px;
+      margin: 0 0 4px;
+    }
+
+    /* Helper bubble: warm-tinted card matching the path-note language,
+       sized to host the given expression banner + compact truth table. */
+    .helper-bubble {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px 18px;
+      box-shadow: var(--shadow-sm);
+    }
+    /* Flatten the banner when it lives inside the helper bubble — the bubble
+       is the visual frame; the banner just contributes content. */
+    .helper-bubble .expr-banner {
+      background: transparent;
+      border: none;
+      border-left: none;
+      border-radius: 0;
+      padding: 0;
+      margin: 0 0 12px;
+      box-shadow: none;
+    }
+    /* When a banner is present, separate it from the truth-table label with a hairline. */
+    .helper-bubble.has-banner h4 {
+      margin-top: 4px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
     }
     @keyframes kmapSettleIn {
       0%   { opacity: 0; transform: translateY(20px) scale(0.97); }
@@ -1385,8 +1429,11 @@
 
     function buildTruthTable(opts = {}) {
       const readOnly = !!opts.readOnly;
+      const compact = !!opts.compact;
       const tbl = document.createElement('table');
-      tbl.className = 'truthTable' + (readOnly ? ' read-only' : '');
+      tbl.className = 'truthTable'
+        + (readOnly ? ' read-only' : '')
+        + (compact ? ' compact' : '');
       const thead = document.createElement('thead');
       const headRow = document.createElement('tr');
       for (const name of state.varNames) {
@@ -2425,11 +2472,12 @@
       kmapSection.appendChild(buildKmapElement('edit'));
 
       const refSection = document.createElement('div');
-      refSection.className = 'workbench-section workbench-reference';
+      refSection.className = 'workbench-section workbench-reference helper-bubble';
+      if (state.answerKey) refSection.classList.add('has-banner');
       const tableLabel = document.createElement('h4');
       tableLabel.textContent = 'Truth table';
       refSection.appendChild(tableLabel);
-      const refTable = buildTruthTable({ readOnly: true });
+      const refTable = buildTruthTable({ readOnly: true, compact: true });
       refSection.appendChild(refTable);
 
       workbench.appendChild(kmapSection);
