@@ -2584,7 +2584,7 @@
 
       // Build the give-up section dynamically based on kind.
       let giveUpWrap = null;
-      if (giveUpText || giveUpStages) {
+      if (giveUpKind) {
         giveUpWrap = document.createElement('div');
         giveUpWrap.className = 'modal-give-up';
         if (dodge) giveUpWrap.classList.add('is-hidden');
