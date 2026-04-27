@@ -766,7 +766,7 @@
       padding-top: 0;
     }
 
-    /* === Step 3 K-map workbench (truth table + K-map side by side) === */
+    /* === Step 3 K-map workbench (K-map left, given expression + truth table right) === */
     .kmap-workbench {
       display: flex;
       gap: 28px;
@@ -776,21 +776,25 @@
     }
     .workbench-section {
       flex-shrink: 0;
-      animation: workbenchFloatIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
     }
     .workbench-section h4 {
       margin: 0 0 10px;
     }
-    .workbench-truthtable {
-      animation-delay: 0.08s;
-    }
     .workbench-kmap {
-      animation-delay: 0.22s;
-      flex: 1 1 auto;
-      min-width: 280px;
+      flex-shrink: 0;
+      animation: kmapSettleIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
     }
-    @keyframes workbenchFloatIn {
-      0%   { opacity: 0; transform: translateY(24px) scale(0.97); }
+    .workbench-reference {
+      flex: 1 1 auto;
+      min-width: 240px;
+      display: flex;
+      flex-direction: column;
+    }
+    .workbench-reference h4 {
+      margin-top: 6px;
+    }
+    @keyframes kmapSettleIn {
+      0%   { opacity: 0; transform: translateY(20px) scale(0.97); }
       100% { opacity: 1; transform: translateY(0) scale(1); }
     }
 
@@ -1360,10 +1364,10 @@
       verifiedExpression: null,
     };
 
-    function renderExprBanner(bodyId, opts = {}) {
+    function renderExprBanner(target, opts = {}) {
       if (!state.answerKey) return;
-      const body = document.getElementById(bodyId);
-      if (!body) return;
+      const el = (typeof target === 'string') ? document.getElementById(target) : target;
+      if (!el) return;
       const banner = document.createElement('div');
       banner.className = 'expr-banner';
       const action = opts.withAutoFill
@@ -1376,7 +1380,7 @@
         </div>
         ${action}
       `;
-      body.prepend(banner);
+      el.prepend(banner);
     }
 
     function buildTruthTable(opts = {}) {
@@ -1483,6 +1487,10 @@
       wirePathHandlers();
       document.getElementById('buildKmapBtn').addEventListener('click', () => {
         if (state.startingPoint === 'expression' && (!state.answerKey || !state.truthTableVerified)) return;
+        // Capture the truth table's current position so Step 3 can FLIP-animate it
+        // into its new home on the right of the K-map (no fade — it just flows).
+        const tableEl = document.querySelector('#step2Body table.truthTable');
+        if (tableEl) state._flowFromStep2 = { tableRect: tableEl.getBoundingClientRect() };
         state.kmapBuilt = true;
         state.step = 3;
         state.kmapDraft = Array(1 << state.n).fill(null);
@@ -2365,12 +2373,11 @@
       if (!state.kmapBuilt) return;
       const body = document.getElementById('step3Body');
       body.innerHTML = '';
-      renderExprBanner('step3Body');
 
-      // General step note.
+      // General step note. (Banner is rendered inside the workbench right column.)
       const note = document.createElement('p');
       note.className = 'step-note';
-      note.textContent = "Build the K-map from the truth table. Click each cell to cycle 0 → 1 → X. The truth table on the left is your reference.";
+      note.textContent = "Build the K-map from the truth table on the right. Click each cell to cycle 0 → 1 → X.";
       body.appendChild(note);
 
       // Layout selector — restyled to match the field-row pattern.
@@ -2406,16 +2413,9 @@
         });
       }
 
-      // Side-by-side workbench: read-only truth table (reference) + interactive K-map.
+      // Workbench: K-map on the left, given expression banner + truth table on the right.
       const workbench = document.createElement('div');
       workbench.className = 'kmap-workbench';
-
-      const tableSection = document.createElement('div');
-      tableSection.className = 'workbench-section workbench-truthtable';
-      const tableLabel = document.createElement('h4');
-      tableLabel.textContent = 'Truth table (reference)';
-      tableSection.appendChild(tableLabel);
-      tableSection.appendChild(buildTruthTable({ readOnly: true }));
 
       const kmapSection = document.createElement('div');
       kmapSection.className = 'workbench-section workbench-kmap';
@@ -2424,9 +2424,48 @@
       kmapSection.appendChild(kmapLabel);
       kmapSection.appendChild(buildKmapElement('edit'));
 
-      workbench.appendChild(tableSection);
+      const refSection = document.createElement('div');
+      refSection.className = 'workbench-section workbench-reference';
+      const tableLabel = document.createElement('h4');
+      tableLabel.textContent = 'Truth table';
+      refSection.appendChild(tableLabel);
+      const refTable = buildTruthTable({ readOnly: true });
+      refSection.appendChild(refTable);
+
       workbench.appendChild(kmapSection);
+      workbench.appendChild(refSection);
       body.appendChild(workbench);
+
+      // Banner sits at the top of the right column, above the truth table.
+      renderExprBanner(refSection);
+
+      // FLIP animation: if we just arrived from Step 2, fly the truth table from
+      // its old position to its new position (no fade — it flows).
+      if (state._flowFromStep2 && state._flowFromStep2.tableRect) {
+        const oldRect = state._flowFromStep2.tableRect;
+        state._flowFromStep2 = null;
+        // Step 3 isn't visible yet (fade-in starts at ~220ms after click). Schedule the
+        // FLIP measurement+animation to fire when Step 3 becomes visible.
+        setTimeout(() => {
+          const newTable = document.querySelector('#step3Body table.truthTable');
+          if (!newTable) return;
+          const newRect = newTable.getBoundingClientRect();
+          const dx = oldRect.left - newRect.left;
+          const dy = oldRect.top - newRect.top;
+          // Place at old position, then animate to identity.
+          newTable.style.transition = 'none';
+          newTable.style.transform = `translate(${dx}px, ${dy}px)`;
+          newTable.offsetHeight; // force reflow
+          requestAnimationFrame(() => {
+            newTable.style.transition = 'transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)';
+            newTable.style.transform = '';
+            setTimeout(() => {
+              newTable.style.transition = '';
+              newTable.style.transform = '';
+            }, 700);
+          });
+        }, 230);
+      }
 
       // Tools / fallback / advance.
       const continueLocked = !state.kmapVerified;
