@@ -840,15 +840,16 @@
       }
     }
 
-    /* Helper bubble: warm-tinted card matching the path-note language,
-       sized to host the given expression banner + compact truth table. */
+    /* Helper bubble: visually integrated with the step card — no separate frame.
+       Just sits in the corner with a thin left divider so it reads as the same
+       surface, not a detached panel. */
     .helper-bubble {
-      background: var(--surface-soft);
-      border: 1px solid var(--border);
-      border-left: 3px solid var(--accent);
-      border-radius: var(--radius-lg);
-      padding: 16px 18px 18px;
-      box-shadow: var(--shadow-sm);
+      background: transparent;
+      border: none;
+      border-left: 1px solid var(--border);
+      border-radius: 0;
+      padding: 0 0 0 18px;
+      box-shadow: none;
     }
     /* Flatten the banner when it lives inside the helper bubble — the bubble
        is the visual frame; the banner just contributes content. */
@@ -886,11 +887,13 @@
       flex-wrap: wrap;
       gap: 18px;
       margin: 18px 0 22px;
-      align-items: stretch;
+      align-items: stretch; /* equal heights for visual symmetry */
     }
     .ref-card {
-      flex: 1 1 220px;
-      min-width: 200px;
+      /* Size to the content's natural width — K-map card grows enough to show
+         the full grid without scrolling, truth table card stays compact, given
+         expression sits in a fixed-ish width. */
+      flex: 0 0 auto;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-lg);
@@ -899,14 +902,17 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
-      overflow-x: auto;
     }
     .ref-card h4 {
       margin: 0 0 6px;
     }
     .ref-card-given {
+      flex: 0 1 240px;
+      min-width: 200px;
+      max-width: 280px;
       background: var(--surface-soft);
       border-left: 3px solid var(--accent);
+      justify-content: flex-start;
     }
     .ref-card .ref-formula {
       font-family: var(--font-mono);
@@ -915,10 +921,12 @@
       color: var(--text);
       word-break: break-word;
     }
-    /* K-map view inside a ref card: no shadow (the card has one). */
+    /* K-map view inside a ref card: no inner border, drops shadow (card has one),
+       full natural size so no scrollbar appears. */
     .ref-card .kmap[data-mode="view"] {
       box-shadow: none;
-      padding: 8px;
+      padding: 6px;
+      border: none;
     }
     .ref-card .kmap[data-mode="view"] .kmap-cell[data-minterm] {
       cursor: default;
@@ -1055,6 +1063,48 @@
       background: var(--accent-hover);
       border-color: var(--accent-hover);
       box-shadow: var(--shadow-md);
+    }
+
+    /* === Step 4 Check my groups result list === */
+    .tool-result.check-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 8px;
+    }
+    .check-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      line-height: 1.4;
+      border-left: 3px solid;
+    }
+    .check-icon {
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .check-item-success {
+      background: rgba(21, 128, 61, 0.07);
+      border-left-color: var(--success);
+      color: var(--success);
+    }
+    .check-item-warn {
+      background: rgba(217, 119, 6, 0.08);
+      border-left-color: #B45309;
+      color: #92400E;
+    }
+    .check-item-error {
+      background: var(--error-soft);
+      border-left-color: var(--error);
+      color: var(--error);
+    }
+    .check-item-info {
+      background: var(--surface-soft);
+      border-left-color: var(--text-3);
+      color: var(--text-2);
     }
 
     /* === Step 4 pending selection bar + groups list === */
@@ -1505,6 +1555,7 @@
         state.manualGroups = [];
         state.solveMode = null;
         state.solverExpression = null;
+        state.groupingVerified = false;
         if (state.pendingSelection) state.pendingSelection.clear();
       }
       if (fromStep < 5) {
@@ -1762,6 +1813,7 @@
       answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
       truthTableVerified: false,
       kmapVerified: false,
+      groupingVerified: false,
       startingPoint: 'expression',  // Step 2 segmented control: 'expression' | 'truthtable'
       pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
@@ -2132,7 +2184,7 @@
           </div>
         </div>
         <div class="step-advance">
-          <button id="continueVerifyBtn" type="button">Continue →</button>
+          <button id="continueVerifyBtn" type="button" ${state.groupingVerified ? '' : 'disabled title="Click Check my groups first — Continue unlocks once your groups are valid and match F."'}>Continue →</button>
         </div>
       `;
       content.appendChild(ctrls);
@@ -2147,6 +2199,7 @@
       document.getElementById('autoSolveBtn').addEventListener('click', openAutoSolvePrank);
       document.getElementById('clearGroupingBtn').addEventListener('click', clearGrouping);
       document.getElementById('continueVerifyBtn').addEventListener('click', () => {
+        if (!state.groupingVerified) return;
         state.step = 5;
         renderAll();
       });
@@ -2155,9 +2208,18 @@
       updateManualButtons();
     }
 
+    function updateContinueVerifyButton() {
+      const cont = document.getElementById('continueVerifyBtn');
+      if (!cont) return;
+      cont.disabled = !state.groupingVerified;
+      if (state.groupingVerified) cont.removeAttribute('title');
+      else cont.title = 'Click Check my groups first — Continue unlocks once your groups are valid and match F.';
+    }
+
     function setSolveMode(mode) {
       if (state.solveMode === mode) return;
       state.solveMode = mode;
+      state.groupingVerified = false;
       const toggle = document.getElementById('polarityToggle');
       if (toggle) {
         toggle.dataset.mode = mode;
@@ -2167,9 +2229,9 @@
           b.setAttribute('aria-selected', isActive ? 'true' : 'false');
         });
       }
-      // Clear stale check results since polarity changed.
       const cgr = document.getElementById('checkGroupsResult');
-      if (cgr) cgr.textContent = '';
+      if (cgr) { cgr.classList.remove('check-list'); cgr.innerHTML = ''; }
+      updateContinueVerifyButton();
     }
 
     function cancelPendingSelection() {
@@ -2226,13 +2288,15 @@
       });
       state.solverGroups = [];
       state.solverExpression = r.expression;
+      state.groupingVerified = false;
       if (state.pendingSelection) state.pendingSelection.clear();
       cascadeChange(4);
       renderManualGroupList();
       renderOverlays();
       updatePendingHighlight();
       const cgr = document.getElementById('checkGroupsResult');
-      if (cgr) cgr.textContent = '';
+      if (cgr) { cgr.classList.remove('check-list'); cgr.innerHTML = ''; }
+      updateContinueVerifyButton();
     }
 
     function renderOverlays(forceLabels) {
@@ -2301,9 +2365,13 @@
         chip.querySelector('.remove').addEventListener('click', e => {
           e.stopPropagation();
           state.manualGroups.splice(idx, 1);
+          state.groupingVerified = false;
           cascadeChange(4);
           renderManualGroupList();
           renderOverlays();
+          const cgr = document.getElementById('checkGroupsResult');
+          if (cgr) { cgr.classList.remove('check-list'); cgr.innerHTML = ''; }
+          updateContinueVerifyButton();
         });
         chip.addEventListener('click', () => {
           // Flash the matching overlay rect(s)
@@ -2341,34 +2409,44 @@
         term, color, rects,
         andMask: cube.andMask, freeBits: cube.freeBits,
       });
+      state.groupingVerified = false;
       cascadeChange(4);
       state.pendingSelection.clear();
       updatePendingHighlight();
       renderManualGroupList();
       renderOverlays();
+      updateContinueVerifyButton();
     }
 
     // Comprehensive grouping check: per-group analysis (manual groups), function
-    // correctness (vs truth table), and minimality.
+    // correctness (vs truth table), and minimality. Output is a list of line items,
+    // each colored by status (success / warn / error / info).
     function checkManualGroups() {
       const out = document.getElementById('checkGroupsResult');
+      out.classList.remove('check-list');
       out.style.color = '';
+      out.innerHTML = '';
       const allGroups = [...state.manualGroups, ...state.solverGroups];
       if (allGroups.length === 0) {
-        out.style.color = 'var(--error)';
-        out.textContent = 'No groups yet. Confirm a group or use Auto-solve.';
+        out.classList.add('check-list');
+        out.innerHTML = '<div class="check-item check-item-error">✗ No groups yet — confirm a group or use Auto-solve.</div>';
         return;
       }
       const mode = state.solveMode || 'SOP';
       const target = mode === 'SOP' ? 1 : 0;
       const ref = KMapCore.solve(state.values, state.n, mode, state.varNames);
 
-      const lines = [];
+      const items = []; // each: { type: 'success'|'warn'|'error'|'info', icon, text }
+      let allGroupsValid = true;
 
       // Per-group analysis (manual groups only — solver groups are correct by construction).
       state.manualGroups.forEach((g, i) => {
         const cube = KMapCore.isValidCube(g.minterms, state.n);
-        if (!cube.ok) { lines.push(`Group ${i+1} (${g.term}): ✗ ${cube.reason}`); return; }
+        if (!cube.ok) {
+          allGroupsValid = false;
+          items.push({ type: 'error', icon: '✗', text: `Group ${i+1} — ${cube.reason}` });
+          return;
+        }
         let badPolarity = null;
         for (const m of g.minterms) {
           if (state.values[m] !== target && state.values[m] !== 'X') {
@@ -2376,9 +2454,10 @@
           }
         }
         if (badPolarity !== null) {
-          lines.push(`Group ${i+1} (${g.term}): ✗ contains a ${state.values[badPolarity]} cell at m=${badPolarity}`); return;
+          allGroupsValid = false;
+          items.push({ type: 'error', icon: '✗', text: `Group ${i+1} — contains a ${state.values[badPolarity]} at m=${badPolarity}` });
+          return;
         }
-        // Primality: try to extend by flipping one fixed bit.
         const fixedBits = ((1 << state.n) - 1) & ~cube.freeBits;
         let extendable = false;
         for (let bit = 0; bit < state.n; bit++) {
@@ -2396,12 +2475,11 @@
           const allOk = ext.every(m => state.values[m] === target || state.values[m] === 'X');
           if (allOk) { extendable = true; break; }
         }
-        if (extendable) lines.push(`Group ${i+1} (${g.term}): ⚠ valid cube but extendable (not prime)`);
-        else              lines.push(`Group ${i+1} (${g.term}): ✓ prime implicant`);
+        if (extendable) items.push({ type: 'warn', icon: '⚠', text: `Group ${i+1} — valid but not prime (could be larger)` });
+        else            items.push({ type: 'success', icon: '✓', text: `Group ${i+1} — prime implicant` });
       });
-      if (state.manualGroups.length > 0) lines.push('');
 
-      // Function correctness — does the union of groups produce the correct function?
+      // Function correctness.
       const covered = new Set();
       for (const g of allGroups) for (const m of g.minterms) covered.add(m);
       const mismatches = [];
@@ -2412,12 +2490,13 @@
         const fPrime = mode === 'SOP' ? (inGroup ? 1 : 0) : (inGroup ? 0 : 1);
         if (fPrime !== expected) mismatches.push(m);
       }
-      if (mismatches.length === 0) {
-        lines.push(`Function: ✓ Your groups define the correct function (${mode}).`);
+      const functionOk = mismatches.length === 0;
+      if (functionOk) {
+        items.push({ type: 'success', icon: '✓', text: `Function — matches the truth table (${mode})` });
       } else {
-        const preview = mismatches.slice(0, 5).join(', ');
-        const more = mismatches.length > 5 ? `, …and ${mismatches.length - 5} more` : '';
-        lines.push(`Function: ✗ ${mismatches.length} minterm(s) don't match (m=${preview}${more}).`);
+        const preview = mismatches.slice(0, 4).join(', ');
+        const more = mismatches.length > 4 ? `, +${mismatches.length - 4} more` : '';
+        items.push({ type: 'error', icon: '✗', text: `Function — ${mismatches.length} mismatch(es) at m=${preview}${more}` });
       }
 
       // Minimality.
@@ -2430,13 +2509,26 @@
         const c = cubeFor(g);
         return sum + (c.ok ? state.n - KMapCore.popcount(c.freeBits) : 0);
       }, 0);
-      if (allGroups.length === ref.groups.length && userLits <= refLits) {
-        lines.push(`Minimality: ✓ minimal cover (${allGroups.length} groups, ${userLits} literals).`);
+      const minimal = allGroups.length === ref.groups.length && userLits <= refLits;
+      if (minimal) {
+        items.push({ type: 'success', icon: '✓', text: `Minimal — ${allGroups.length} groups, ${userLits} literals` });
       } else {
-        lines.push(`Minimality: your cover uses ${allGroups.length} groups (${userLits} literals); minimum is ${ref.groups.length} (${refLits} literals).`);
+        items.push({ type: 'info', icon: 'ℹ', text: `Could be smaller — yours: ${allGroups.length} groups (${userLits} literals); min: ${ref.groups.length} (${refLits})` });
       }
 
-      out.textContent = lines.join('\n');
+      out.classList.add('check-list');
+      out.innerHTML = items.map(it =>
+        `<div class="check-item check-item-${it.type}"><span class="check-icon">${it.icon}</span><span>${it.text}</span></div>`
+      ).join('');
+
+      // Continue is unlocked only when groups are all valid AND the function matches.
+      state.groupingVerified = allGroupsValid && functionOk;
+      const cont = document.getElementById('continueVerifyBtn');
+      if (cont) {
+        cont.disabled = !state.groupingVerified;
+        if (state.groupingVerified) cont.removeAttribute('title');
+        else cont.title = 'Click Check my groups first — Continue unlocks once your groups are valid and match F.';
+      }
     }
 
     function renderVerify() {
@@ -2847,7 +2939,7 @@
         yesText: 'Yes, fill it for me',
         cancelText: "OK fine, I'll try myself",
         giveUpKind: 'hold',
-        giveUpText: '🏳️ HOLD TO GIVE UP',
+        giveUpText: '🌬️ Breathe and hold',
         giveUpHoldMs: 1500,
         onConfirm: autoFillKmap,
       });
@@ -3378,12 +3470,14 @@
       state.solverExpression = null;
       state.solutionVerified = false;
       state.verifiedExpression = null;
+      state.groupingVerified = false;
       cascadeChange(4);
       renderOverlays();
       renderManualGroupList();
       updatePendingHighlight();
       const cgr = document.getElementById('checkGroupsResult');
-      if (cgr) cgr.textContent = '';
+      if (cgr) { cgr.classList.remove('check-list'); cgr.innerHTML = ''; }
+      updateContinueVerifyButton();
     }
 
     function renderKmapStep4() {
