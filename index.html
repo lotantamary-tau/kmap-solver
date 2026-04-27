@@ -1153,6 +1153,40 @@
       color: var(--text-3);
     }
 
+    /* Don't-care minterms row (sits below the expression input). */
+    .dc-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .dc-row .dc-label {
+      font-size: 12.5px;
+      color: var(--text-2);
+      font-weight: 500;
+      flex: 0 0 auto;
+    }
+    .dc-row .dc-hint {
+      font-size: 11.5px;
+      color: var(--text-3);
+      font-weight: 400;
+    }
+    .dc-row .dc-hint code {
+      font-family: var(--font-mono);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0 4px;
+      color: var(--text);
+    }
+    .dc-row #dcInput {
+      flex: 1;
+      min-width: 200px;
+      max-width: 280px;
+      font-family: var(--font-mono);
+    }
+
     /* Cross-fade for path-specific sections when the slider switches. */
     .path-section {
       transition: opacity 0.2s ease, transform 0.2s ease;
@@ -2056,9 +2090,14 @@
       state.values = Array(1 << state.n).fill('X');
       // Random Function bypasses the Apply gate — it's already a committed
       // expression/answer-key pair by construction. Re-parse to get the AST
-      // so the step-by-step evaluator has it available.
+      // so the step-by-step evaluator has it available. No don't-cares.
       const parsed = KMapCore.parseExpression(sop.expression, state.varNames);
-      state.answerKey = { expression: sop.expression, ast: parsed.ok ? parsed.ast : null, evaluated: bits };
+      state.answerKey = {
+        expression: sop.expression,
+        ast: parsed.ok ? parsed.ast : null,
+        evaluated: bits,
+        dontCares: [],
+      };
       state.truthTableVerified = false;
       state.evaluator = null;
       cascadeChange(2);
@@ -2087,11 +2126,16 @@
         const safe = exprValue
           .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
           .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const dcList = state.answerKey && state.answerKey.dontCares ? state.answerKey.dontCares.join(', ') : '';
         return `
           <div class="expr-row">
             <input id="exprInput" type="text" placeholder="e.g. A'B + AC" autocomplete="off" value="${safe}">
             <button id="applyBtn" type="button" class="apply-btn" disabled title="Type a valid expression and click Apply to enable the truth-table tools.">✓ Apply</button>
             <button id="randomFnBtn" type="button">🎲 Random function</button>
+          </div>
+          <div class="dc-row">
+            <label class="dc-label" for="dcInput">Don't-care minterms <span class="dc-hint">(optional, e.g. <code>5, 7</code>)</span></label>
+            <input id="dcInput" type="text" placeholder="empty = none" autocomplete="off" value="${dcList}">
           </div>
           <div class="err" id="exprErr"></div>
         `;
@@ -2129,6 +2173,16 @@
         if (exprInput) {
           exprInput.addEventListener('input', handleExprInput);
           exprInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (canApplyExpression()) applyExpression();
+            }
+          });
+        }
+        const dcInput = document.getElementById('dcInput');
+        if (dcInput) {
+          dcInput.addEventListener('input', handleExprInput);
+          dcInput.addEventListener('keydown', e => {
             if (e.key === 'Enter') {
               e.preventDefault();
               if (canApplyExpression()) applyExpression();
@@ -2208,68 +2262,120 @@
       }, 200);
     }
 
-    // Input handler — does NOT set answerKey. Just detects whether the input
-    // differs from the currently-applied expression (in which case clear the
-    // applied state so dependent UI deactivates), and validates syntax for
-    // inline parse-error display. Apply button + evaluator panel react via
-    // refreshExpressionDependentUI.
+    // Parse the don't-care minterms input. Accepts a comma/space/semicolon
+    // separated list of minterm indices. Returns { ok, list, error }.
+    // Empty input is valid (empty list). Each minterm must be in [0, 2^n - 1]
+    // and unique. Garbage input returns ok=false.
+    function parseDontCareList(src, n) {
+      if (!src || !src.trim()) return { ok: true, list: [] };
+      const max = (1 << n) - 1;
+      const tokens = src.split(/[\s,;]+/).filter(t => t.length > 0);
+      const seen = new Set();
+      const list = [];
+      for (const tok of tokens) {
+        if (!/^[0-9]+$/.test(tok)) return { ok: false, error: `not a number: "${tok}"` };
+        const v = parseInt(tok, 10);
+        if (v < 0 || v > max) return { ok: false, error: `${v} out of range (0..${max})` };
+        if (seen.has(v)) continue; // dedupe silently
+        seen.add(v);
+        list.push(v);
+      }
+      list.sort((a, b) => a - b);
+      return { ok: true, list };
+    }
+
+    // True iff the don't-care list and the expression collide — i.e. the user
+    // declared a minterm as don't-care but the expression evaluates differently
+    // there. This is informational only; we let the don't-care list win.
+    function dontCareCollides(_exprAst, _dcList, _n) { return false; /* reserved */ }
+
+    // Input handler — does NOT set answerKey. Just detects whether the inputs
+    // differ from the currently-applied state (in which case clear it so
+    // dependent UI deactivates), and validates syntax for inline error display.
+    // Apply button + evaluator panel react via refreshExpressionDependentUI.
     function handleExprInput() {
       const exprInput = document.getElementById('exprInput');
+      const dcInput = document.getElementById('dcInput');
       const errEl = document.getElementById('exprErr');
       if (!exprInput) return;
       const src = exprInput.value.trim();
+      const dcSrc = dcInput ? dcInput.value.trim() : '';
 
-      // If user has edited away from the applied expression, deactivate.
+      // If user has edited away from the applied state, deactivate.
       const appliedSrc = state.answerKey ? state.answerKey.expression : null;
-      if (src !== appliedSrc && state.answerKey) {
+      const appliedDcSrc = state.answerKey && state.answerKey.dontCares
+        ? state.answerKey.dontCares.join(', ') : '';
+      const exprChanged = src !== (appliedSrc || '');
+      const dcChanged = dcSrc !== appliedDcSrc;
+      if ((exprChanged || dcChanged) && state.answerKey) {
         state.answerKey = null;
         state.truthTableVerified = false;
         state.evaluator = null;
         cascadeChange(2);
       }
 
-      // Inline parse-error display (only for non-empty input).
+      // Inline error display: prefer expression parse errors, then DC list errors.
       if (errEl) {
-        if (!src) {
-          errEl.textContent = '';
-        } else {
+        let msg = '';
+        if (src) {
           const r = KMapCore.parseExpression(src, state.varNames);
-          errEl.textContent = r.ok ? '' : r.error;
+          if (!r.ok) msg = 'Expression: ' + r.error;
         }
+        if (!msg && dcSrc) {
+          const dc = parseDontCareList(dcSrc, state.n);
+          if (!dc.ok) msg = "Don't-cares: " + dc.error;
+        }
+        errEl.textContent = msg;
       }
 
       refreshExpressionDependentUI();
     }
 
-    // The Apply button — explicitly commits the current input as the
-    // answer key. Called only on click; no longer happens automatically.
+    // The Apply button — explicitly commits the current inputs as the
+    // answer key (expression + don't-care list).
     function applyExpression() {
       const exprInput = document.getElementById('exprInput');
+      const dcInput = document.getElementById('dcInput');
       if (!exprInput) return;
       const src = exprInput.value.trim();
       if (!src) return;
       const r = KMapCore.parseExpression(src, state.varNames);
       if (!r.ok) return;
+      const dc = parseDontCareList(dcInput ? dcInput.value : '', state.n);
+      if (!dc.ok) return;
       const evaluated = [];
       for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
-      state.answerKey = { expression: src, ast: r.ast, evaluated };
+      state.answerKey = {
+        expression: src,
+        ast: r.ast,
+        evaluated,
+        dontCares: dc.list,
+      };
       state.truthTableVerified = false;
       state.evaluator = null;
       cascadeChange(2);
       refreshExpressionDependentUI();
     }
 
-    // Whether the current input value can be applied — i.e. it parses cleanly
-    // AND differs from the currently-applied expression (so there's something
-    // new to apply).
+    // Whether the current inputs can be applied — i.e. expression parses,
+    // don't-care list parses, AND at least one differs from the applied state.
     function canApplyExpression() {
       const exprInput = document.getElementById('exprInput');
+      const dcInput = document.getElementById('dcInput');
       if (!exprInput) return false;
       const src = exprInput.value.trim();
       if (!src) return false;
-      if (state.answerKey && state.answerKey.expression === src) return false;
       const r = KMapCore.parseExpression(src, state.varNames);
-      return r.ok;
+      if (!r.ok) return false;
+      const dc = parseDontCareList(dcInput ? dcInput.value : '', state.n);
+      if (!dc.ok) return false;
+      // Compare against currently-applied state.
+      if (state.answerKey
+          && state.answerKey.expression === src
+          && JSON.stringify(state.answerKey.dontCares || []) === JSON.stringify(dc.list)) {
+        return false; // nothing new to apply
+      }
+      return true;
     }
 
     // Update visibility / enabled state of every Step-2 widget that depends
@@ -4966,9 +5072,12 @@
 
     function autoFillFromExpression() {
       if (!state.answerKey) return;
-      for (let m = 0; m < state.values.length; m++) state.values[m] = state.answerKey.evaluated[m];
+      const dcSet = new Set(state.answerKey.dontCares || []);
+      for (let m = 0; m < state.values.length; m++) {
+        state.values[m] = dcSet.has(m) ? 'X' : state.answerKey.evaluated[m];
+      }
       state.solverGroups = [];
-      state.truthTableVerified = true;  // auto-fill matches the expression by definition
+      state.truthTableVerified = true;  // auto-fill matches the answer key by definition
       cascadeChange(2);
       renderAll();
     }
@@ -4976,12 +5085,15 @@
     function checkTruthTable() {
       if (!state.answerKey) return;
       const correct = state.answerKey.evaluated;
+      const dcSet = new Set(state.answerKey.dontCares || []);
       let pass = 0; const wrong = [];
       document.querySelectorAll('#step2Body td.f').forEach(td => {
         const m = +td.dataset.minterm;
-        const ok = state.values[m] === correct[m];
+        // Don't-care rows must be X. Regular rows must equal the expression.
+        const expected = dcSet.has(m) ? 'X' : correct[m];
+        const ok = state.values[m] === expected;
         td.classList.toggle('wrong', !ok);
-        if (ok) pass++; else { wrong.push(m); td.title = `expected ${correct[m]}`; }
+        if (ok) pass++; else { wrong.push(m); td.title = `expected ${expected}`; }
       });
       state.truthTableVerified = (wrong.length === 0);
       const result = document.getElementById('checkTtResult');
