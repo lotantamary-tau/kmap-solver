@@ -270,10 +270,9 @@
     /* Primary buttons (main flow actions) */
     button#continueBtn,
     button#buildKmapBtn,
+    button#continueGroupingBtn,
     button#continueVerifyBtn,
     button#continueExportBtn,
-    button#solveSopBtn,
-    button#solvePosBtn,
     button#verifyBtn,
     button#dlPngBtn,
     button#dlPdfBtn,
@@ -287,10 +286,9 @@
     }
     button#continueBtn:hover:not(:disabled),
     button#buildKmapBtn:hover:not(:disabled),
+    button#continueGroupingBtn:hover:not(:disabled),
     button#continueVerifyBtn:hover:not(:disabled),
     button#continueExportBtn:hover:not(:disabled),
-    button#solveSopBtn:hover:not(:disabled),
-    button#solvePosBtn:hover:not(:disabled),
     button#verifyBtn:hover:not(:disabled),
     button#dlPngBtn:hover:not(:disabled),
     button#dlPdfBtn:hover:not(:disabled),
@@ -810,8 +808,8 @@
       padding-top: 0;
     }
 
-    /* === Step 3 layout: K-map flows in main area; helper bubble floats top-right === */
-    #step3Body { position: relative; }
+    /* === Steps 3/4: helper bubble floats top-right; main content flows in left area === */
+    #step3Body, #step4Body { position: relative; }
     .step-with-helper {
       padding-right: 320px; /* room for the floating helper bubble */
       min-height: 240px;    /* keeps content from collapsing if K-map is small */
@@ -967,6 +965,8 @@
       margin-top: 22px;
       padding-top: 18px;
       border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
     }
 
     /* === Runaway-Yes confirmation modal (Reveal Answer + Fill F) === */
@@ -1835,10 +1835,8 @@
         <div class="step-tools">
           <div class="step-tools-row">
             <button id="checkGroupsBtn" type="button">Check my groups</button>
-            <button id="checkCoverageBtn" type="button" class="secondary-btn">Check coverage</button>
           </div>
           <div id="checkGroupsResult" class="tool-result"></div>
-          <div id="checkCoverageResult" class="tool-result"></div>
           <div class="step-tools-fallback">
             <button id="autoSolveBtn" type="button" class="secondary-btn">⤓ Auto-solve grouping</button>
             <span class="row-hint">Skip the manual work — solves with the current grouping mode.</span>
@@ -1861,7 +1859,6 @@
       document.getElementById('confirmGroupBtn').addEventListener('click', confirmManualGroup);
       document.getElementById('cancelGroupBtn').addEventListener('click', cancelPendingSelection);
       document.getElementById('checkGroupsBtn').addEventListener('click', checkManualGroups);
-      document.getElementById('checkCoverageBtn').addEventListener('click', checkCoverageAgainstTruthTable);
       document.getElementById('autoSolveBtn').addEventListener('click', openAutoSolvePrank);
       document.getElementById('clearGroupingBtn').addEventListener('click', clearGrouping);
       document.getElementById('continueVerifyBtn').addEventListener('click', () => {
@@ -1888,8 +1885,6 @@
       // Clear stale check results since polarity changed.
       const cgr = document.getElementById('checkGroupsResult');
       if (cgr) cgr.textContent = '';
-      const ccr = document.getElementById('checkCoverageResult');
-      if (ccr) ccr.textContent = '';
     }
 
     function cancelPendingSelection() {
@@ -2048,17 +2043,24 @@
       renderOverlays();
     }
 
+    // Comprehensive grouping check: per-group analysis (manual groups), function
+    // correctness (vs truth table), and minimality.
     function checkManualGroups() {
       const out = document.getElementById('checkGroupsResult');
-      if (state.manualGroups.length === 0) { out.textContent = 'No manual groups yet.'; return; }
+      out.style.color = '';
+      const allGroups = [...state.manualGroups, ...state.solverGroups];
+      if (allGroups.length === 0) {
+        out.style.color = 'var(--error)';
+        out.textContent = 'No groups yet. Confirm a group or use Auto-solve.';
+        return;
+      }
       const mode = state.solveMode || 'SOP';
-      const ref = KMapCore.solve(state.values, state.n, mode, state.varNames);
       const target = mode === 'SOP' ? 1 : 0;
-      const required = [];
-      for (let m = 0; m < state.values.length; m++) if (state.values[m] === target) required.push(m);
+      const ref = KMapCore.solve(state.values, state.n, mode, state.varNames);
 
       const lines = [];
-      // Per-group status
+
+      // Per-group analysis (manual groups only — solver groups are correct by construction).
       state.manualGroups.forEach((g, i) => {
         const cube = KMapCore.isValidCube(g.minterms, state.n);
         if (!cube.ok) { lines.push(`Group ${i+1} (${g.term}): ✗ ${cube.reason}`); return; }
@@ -2071,7 +2073,7 @@
         if (badPolarity !== null) {
           lines.push(`Group ${i+1} (${g.term}): ✗ contains a ${state.values[badPolarity]} cell at m=${badPolarity}`); return;
         }
-        // Primality: try to extend by flipping one fixed bit
+        // Primality: try to extend by flipping one fixed bit.
         const fixedBits = ((1 << state.n) - 1) & ~cube.freeBits;
         let extendable = false;
         for (let bit = 0; bit < state.n; bit++) {
@@ -2079,75 +2081,57 @@
           if (!(fixedBits & b)) continue;
           const extendedFreeBits = cube.freeBits | b;
           const extendedAndMask = cube.andMask & ~b;
-          // Build extended cube minterm set
           const ext = [];
-          // enumerate subsets of extendedFreeBits
           let sub = 0;
           while (true) {
             ext.push(extendedAndMask | sub);
             if (sub === extendedFreeBits) break;
             sub = (sub - extendedFreeBits) & extendedFreeBits;
           }
-          // Check all are valid (1/X for SOP, 0/X for POS)
           const allOk = ext.every(m => state.values[m] === target || state.values[m] === 'X');
           if (allOk) { extendable = true; break; }
         }
         if (extendable) lines.push(`Group ${i+1} (${g.term}): ⚠ valid cube but extendable (not prime)`);
-        else lines.push(`Group ${i+1} (${g.term}): ✓ prime implicant`);
+        else              lines.push(`Group ${i+1} (${g.term}): ✓ prime implicant`);
       });
+      if (state.manualGroups.length > 0) lines.push('');
 
-      // Coverage
+      // Function correctness — does the union of groups produce the correct function?
       const covered = new Set();
-      for (const g of state.manualGroups) for (const m of g.minterms) covered.add(m);
-      const missing = required.filter(m => !covered.has(m));
-      lines.push('');
-      if (missing.length === 0) lines.push('Coverage: ✓ all required minterms covered');
-      else lines.push(`Coverage: missing minterms: ${missing.join(',')}`);
-
-      // Minimality
-      const userLits = state.manualGroups.reduce((sum, g) => sum + (state.n - KMapCore.popcount(g.freeBits)), 0);
-      const refLits = ref.groups.reduce((sum, g) => {
-        // ref.groups have term + minterms + rects + color, but freeBits is recoverable from minterms via popcount of XOR-ed bits.
-        // Easier: re-validate to get freeBits.
-        const c = KMapCore.isValidCube(g.minterms, state.n);
-        return sum + (c.ok ? state.n - KMapCore.popcount(c.freeBits) : 0);
-      }, 0);
-      if (state.manualGroups.length === ref.groups.length && userLits <= refLits) lines.push('Minimality: ✓ minimal cover');
-      else lines.push(`Minimality: your cover uses ${state.manualGroups.length} groups (${userLits} literals); minimum is ${ref.groups.length} (${refLits} literals)`);
-
-      out.textContent = lines.join('\n');
-    }
-
-    function checkCoverageAgainstTruthTable() {
-      const out = document.getElementById('checkCoverageResult');
-      out.style.color = '';
-      const groups = [...state.manualGroups, ...state.solverGroups];
-      if (groups.length === 0) {
-        out.style.color = '#c00';
-        out.textContent = 'No groups yet. Confirm a group or auto-solve first.';
-        return;
-      }
-      const mode = state.solveMode || 'SOP';
-      const covered = new Set();
-      for (const g of groups) for (const m of g.minterms) covered.add(m);
-      const total = state.values.length;
+      for (const g of allGroups) for (const m of g.minterms) covered.add(m);
       const mismatches = [];
-      for (let m = 0; m < total; m++) {
+      for (let m = 0; m < state.values.length; m++) {
         const expected = state.values[m];
         if (expected === 'X') continue;
         const inGroup = covered.has(m);
         const fPrime = mode === 'SOP' ? (inGroup ? 1 : 0) : (inGroup ? 0 : 1);
-        if (fPrime !== expected) mismatches.push({ m, expected, got: fPrime });
+        if (fPrime !== expected) mismatches.push(m);
       }
       if (mismatches.length === 0) {
-        out.style.color = '#0a0';
-        out.textContent = `✓ Your groups define the correct function (${mode}).`;
-        return;
+        lines.push(`Function: ✓ Your groups define the correct function (${mode}).`);
+      } else {
+        const preview = mismatches.slice(0, 5).join(', ');
+        const more = mismatches.length > 5 ? `, …and ${mismatches.length - 5} more` : '';
+        lines.push(`Function: ✗ ${mismatches.length} minterm(s) don't match (m=${preview}${more}).`);
       }
-      out.style.color = '#c00';
-      const preview = mismatches.slice(0, 5).map(x => `  • m=${x.m}: F=${x.expected}, your groups give ${x.got}`).join('\n');
-      const more = mismatches.length > 5 ? `\n  …and ${mismatches.length - 5} more` : '';
-      out.textContent = `✗ ${mismatches.length} minterm(s) don't match the truth table:\n${preview}${more}`;
+
+      // Minimality.
+      const cubeFor = g => KMapCore.isValidCube(g.minterms, state.n);
+      const userLits = allGroups.reduce((sum, g) => {
+        const c = cubeFor(g);
+        return sum + (c.ok ? state.n - KMapCore.popcount(c.freeBits) : 0);
+      }, 0);
+      const refLits = ref.groups.reduce((sum, g) => {
+        const c = cubeFor(g);
+        return sum + (c.ok ? state.n - KMapCore.popcount(c.freeBits) : 0);
+      }, 0);
+      if (allGroups.length === ref.groups.length && userLits <= refLits) {
+        lines.push(`Minimality: ✓ minimal cover (${allGroups.length} groups, ${userLits} literals).`);
+      } else {
+        lines.push(`Minimality: your cover uses ${allGroups.length} groups (${userLits} literals); minimum is ${ref.groups.length} (${refLits} literals).`);
+      }
+
+      out.textContent = lines.join('\n');
     }
 
     function renderVerify() {
@@ -2798,8 +2782,6 @@
       updatePendingHighlight();
       const cgr = document.getElementById('checkGroupsResult');
       if (cgr) cgr.textContent = '';
-      const ccr = document.getElementById('checkCoverageResult');
-      if (ccr) ccr.textContent = '';
     }
 
     function renderKmapStep4() {
