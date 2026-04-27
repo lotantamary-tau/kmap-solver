@@ -647,7 +647,8 @@
       box-shadow: 0 1px 2px rgba(31, 27, 22, 0.06), 0 2px 5px rgba(31, 27, 22, 0.08);
       transition: transform 0.24s cubic-bezier(0.32, 0.72, 0.36, 1);
     }
-    .segmented[data-path="truthtable"] .segmented-thumb {
+    .segmented[data-path="truthtable"] .segmented-thumb,
+    .segmented[data-mode="POS"] .segmented-thumb {
       transform: translateX(100%);
     }
 
@@ -878,6 +879,41 @@
     }
     table.truthTable.read-only td.f:hover {
       background: #fff;
+    }
+
+    /* === Step 4 pending selection bar + groups list === */
+    .pending-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin: 14px 0 10px;
+      padding: 10px 14px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+    }
+    .pending-bar .err {
+      flex: 1;
+      min-width: 0;
+    }
+    .groups-section {
+      margin: 18px 0;
+    }
+    .groups-section h4 {
+      margin: 0 0 8px;
+    }
+    .group-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      min-height: 32px;
+    }
+    .group-list:empty::before {
+      content: 'No groups yet — select cells and Confirm, or use Auto-solve.';
+      font-size: 12.5px;
+      color: var(--text-3);
+      font-style: italic;
     }
 
     /* Cell pop animation — fires when a cell value cycles, so only that cell
@@ -1724,37 +1760,170 @@
     function renderStep4() {
       const body = document.getElementById('step4Body');
       body.innerHTML = '';
-      renderExprBanner('step4Body');
+      const polarity = state.solveMode || 'SOP';
+      state.solveMode = polarity;
 
-      body.insertAdjacentHTML('beforeend', `
-        <div id="step4KmapContainer" style="margin-bottom: 16px;"></div>
-        <div id="manualSection">
-          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
-            <strong>Manual grouping</strong>
+      // Helper bubble — banner + compact truth table, top-right corner.
+      const refSection = document.createElement('div');
+      refSection.className = 'step-helper-corner helper-bubble';
+      if (state.answerKey) refSection.classList.add('has-banner');
+      const tableLabel = document.createElement('h4');
+      tableLabel.textContent = 'Truth table';
+      refSection.appendChild(tableLabel);
+      refSection.appendChild(buildTruthTable({ readOnly: true, compact: true }));
+      body.appendChild(refSection);
+      renderExprBanner(refSection);
+
+      // Main content (right-padded to leave room for the helper bubble).
+      const content = document.createElement('div');
+      content.className = 'step-with-helper';
+      body.appendChild(content);
+
+      // Step note.
+      const note = document.createElement('p');
+      note.className = 'step-note';
+      note.textContent = "Group adjacent 1s (SOP) or 0s (POS) on the K-map. Click cells or drag to select, then Confirm. Or use Auto-solve to do it for you.";
+      content.appendChild(note);
+
+      // Polarity segmented control.
+      const polRow = document.createElement('div');
+      polRow.className = 'field-row';
+      polRow.innerHTML = `
+        <label class="field-label">Grouping mode</label>
+        <div class="segmented" role="tablist" id="polarityToggle" data-mode="${polarity}">
+          <button class="segmented-option ${polarity === 'SOP' ? 'is-active' : ''}" data-mode="SOP" type="button" role="tab" aria-selected="${polarity === 'SOP'}">SOP — group 1s</button>
+          <button class="segmented-option ${polarity === 'POS' ? 'is-active' : ''}" data-mode="POS" type="button" role="tab" aria-selected="${polarity === 'POS'}">POS — group 0s</button>
+          <span class="segmented-thumb"></span>
+        </div>
+      `;
+      content.appendChild(polRow);
+
+      // K-map section.
+      const kmapSection = document.createElement('div');
+      kmapSection.className = 'workbench-kmap';
+      const kmapLabel = document.createElement('h4');
+      kmapLabel.textContent = 'K-map — click cells or drag to select';
+      kmapSection.appendChild(kmapLabel);
+      const kmapContainer = document.createElement('div');
+      kmapContainer.id = 'step4KmapContainer';
+      kmapSection.appendChild(kmapContainer);
+      content.appendChild(kmapSection);
+
+      // Pending selection bar.
+      const pending = document.createElement('div');
+      pending.className = 'pending-bar';
+      pending.innerHTML = `
+        <span id="pendingCount" class="row-hint">No cells selected.</span>
+        <button id="confirmGroupBtn" type="button" disabled>Confirm group</button>
+        <button id="cancelGroupBtn" type="button" class="secondary-btn" disabled>Cancel selection</button>
+        <span class="err" id="manualErr"></span>
+      `;
+      content.appendChild(pending);
+
+      // Group list.
+      const groupsSection = document.createElement('div');
+      groupsSection.className = 'groups-section';
+      groupsSection.innerHTML = `
+        <h4>Your groups</h4>
+        <div id="manualGroupList" class="group-list"></div>
+      `;
+      content.appendChild(groupsSection);
+
+      // Tools / fallback / advance.
+      const ctrls = document.createElement('div');
+      ctrls.innerHTML = `
+        <div class="step-tools">
+          <div class="step-tools-row">
+            <button id="checkGroupsBtn" type="button">Check my groups</button>
+            <button id="checkCoverageBtn" type="button" class="secondary-btn">Check coverage</button>
           </div>
-          <div id="manualPanel"></div>
+          <div id="checkGroupsResult" class="tool-result"></div>
+          <div id="checkCoverageResult" class="tool-result"></div>
+          <div class="step-tools-fallback">
+            <button id="autoSolveBtn" type="button" class="secondary-btn">⤓ Auto-solve grouping</button>
+            <span class="row-hint">Skip the manual work — solves with the current grouping mode.</span>
+          </div>
+          <div class="step-tools-fallback">
+            <button id="clearGroupingBtn" type="button" class="secondary-btn">↺ Clear grouping</button>
+            <span class="row-hint">Wipe every group and start over.</span>
+          </div>
         </div>
-        <div class="solve-section">
-          <h4>Or auto-solve:</h4>
-          <button id="solveSopBtn">Solve 1s (SOP)</button>
-          <button id="solvePosBtn">Solve 0s (POS)</button>
-          <button id="clearGroupingBtn">Clear grouping</button>
+        <div class="step-advance">
+          <button id="continueVerifyBtn" type="button">Continue →</button>
         </div>
-        <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee;">
-          <button id="continueVerifyBtn">Continue to check your solution →</button>
-        </div>
-      `);
+      `;
+      content.appendChild(ctrls);
 
-      document.getElementById('solveSopBtn').addEventListener('click', () => doSolve('SOP'));
-      document.getElementById('solvePosBtn').addEventListener('click', () => doSolve('POS'));
+      // Wire handlers.
+      document.querySelectorAll('#polarityToggle .segmented-option').forEach(btn => {
+        btn.addEventListener('click', () => setSolveMode(btn.dataset.mode));
+      });
+      document.getElementById('confirmGroupBtn').addEventListener('click', confirmManualGroup);
+      document.getElementById('cancelGroupBtn').addEventListener('click', cancelPendingSelection);
+      document.getElementById('checkGroupsBtn').addEventListener('click', checkManualGroups);
+      document.getElementById('checkCoverageBtn').addEventListener('click', checkCoverageAgainstTruthTable);
+      document.getElementById('autoSolveBtn').addEventListener('click', openAutoSolvePrank);
       document.getElementById('clearGroupingBtn').addEventListener('click', clearGrouping);
       document.getElementById('continueVerifyBtn').addEventListener('click', () => {
         state.step = 5;
-        document.getElementById('step5').classList.remove('disabled');
         renderAll();
       });
 
-      renderManualPanel();
+      renderManualGroupList();
+      updateManualButtons();
+    }
+
+    function setSolveMode(mode) {
+      if (state.solveMode === mode) return;
+      state.solveMode = mode;
+      const toggle = document.getElementById('polarityToggle');
+      if (toggle) {
+        toggle.dataset.mode = mode;
+        toggle.querySelectorAll('.segmented-option').forEach(b => {
+          const isActive = b.dataset.mode === mode;
+          b.classList.toggle('is-active', isActive);
+          b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+        });
+      }
+      // Clear stale check results since polarity changed.
+      const cgr = document.getElementById('checkGroupsResult');
+      if (cgr) cgr.textContent = '';
+      const ccr = document.getElementById('checkCoverageResult');
+      if (ccr) ccr.textContent = '';
+    }
+
+    function cancelPendingSelection() {
+      state.pendingSelection.clear();
+      updatePendingHighlight();
+      const errEl = document.getElementById('manualErr');
+      if (errEl) errEl.textContent = '';
+    }
+
+    function updateManualButtons() {
+      const hasPending = state.pendingSelection && state.pendingSelection.size > 0;
+      const confirm = document.getElementById('confirmGroupBtn');
+      const cancel = document.getElementById('cancelGroupBtn');
+      if (confirm) confirm.disabled = !hasPending;
+      if (cancel) cancel.disabled = !hasPending;
+      const count = document.getElementById('pendingCount');
+      if (count) {
+        count.textContent = hasPending
+          ? `${state.pendingSelection.size} cell${state.pendingSelection.size === 1 ? '' : 's'} selected`
+          : 'No cells selected.';
+      }
+    }
+
+    // Skip-practice prank for Auto-solve grouping (Step 4).
+    function openAutoSolvePrank() {
+      const mode = state.solveMode || 'SOP';
+      openRunawayConfirm({
+        title: 'Skip the grouping practice?',
+        message: `This auto-solves the K-map as ${mode} (groups all ${mode === 'SOP' ? '1s' : '0s'}). You'll lose the manual grouping practice.`,
+        yesText: 'Yes, solve it for me',
+        cancelText: "OK fine, I'll try myself",
+        giveUpText: '🏳️ I give up — just solve it',
+        onConfirm: () => doSolve(state.solveMode || 'SOP'),
+      });
     }
 
     function doSolve(mode) {
@@ -1813,43 +1982,6 @@
     }
 
     window.addEventListener('resize', renderOverlays);
-
-    function renderManualPanel() {
-      const panel = document.getElementById('manualPanel');
-      // Default polarity: existing solveMode, or SOP
-      const polarity = state.solveMode || 'SOP';
-      state.solveMode = polarity;
-      panel.innerHTML = `
-        <div>
-          <label><input type="radio" name="manualPolarity" value="SOP" ${polarity==='SOP'?'checked':''}> SOP (group 1s)</label>
-          <label style="margin-left: 12px;"><input type="radio" name="manualPolarity" value="POS" ${polarity==='POS'?'checked':''}> POS (group 0s)</label>
-        </div>
-        <div style="margin-top: 8px;">
-          <button id="confirmGroupBtn">Confirm group</button>
-          <button id="cancelGroupBtn">Cancel</button>
-          <span class="err" id="manualErr" style="margin-left: 12px;"></span>
-        </div>
-        <div id="manualGroupList" style="margin-top: 8px;"></div>
-        <div style="margin-top: 8px;">
-          <button id="checkGroupsBtn">Check my groups</button>
-          <button id="checkCoverageBtn" style="margin-left: 8px;">Check coverage (vs truth table)</button>
-          <div id="checkGroupsResult" style="margin-top: 6px; font-size: 13px; white-space: pre-line;"></div>
-          <div id="checkCoverageResult" style="margin-top: 6px; font-size: 13px; white-space: pre-line;"></div>
-        </div>
-      `;
-      panel.querySelectorAll('input[name="manualPolarity"]').forEach(r => {
-        r.addEventListener('change', e => { state.solveMode = e.target.value; });
-      });
-      document.getElementById('confirmGroupBtn').addEventListener('click', confirmManualGroup);
-      document.getElementById('cancelGroupBtn').addEventListener('click', () => {
-        state.pendingSelection.clear();
-        updatePendingHighlight();
-        document.getElementById('manualErr').textContent = '';
-      });
-      document.getElementById('checkGroupsBtn').addEventListener('click', checkManualGroups);
-      document.getElementById('checkCoverageBtn').addEventListener('click', checkCoverageAgainstTruthTable);
-      renderManualGroupList();
-    }
 
     function renderManualGroupList() {
       const list = document.getElementById('manualGroupList');
@@ -2683,6 +2815,7 @@
         const m = +cell.dataset.minterm;
         cell.classList.toggle('pending', state.pendingSelection.has(m));
       });
+      if (typeof updateManualButtons === 'function') updateManualButtons();
     }
 
     function autoFillKmap() {
