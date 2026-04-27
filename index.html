@@ -1136,55 +1136,66 @@
 
     /* === Step 2 path controls (above the truth table) === */
     .path-controls { margin: 16px 0 18px; }
+
+    /* Expression-mode controls — a tidy block of two labeled inputs side by
+       side (expression + don't-cares), with Apply / Random function buttons
+       on a row below. Truth-table mode uses the simpler .expr-row layout. */
+    .expr-block {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .expr-inputs {
+      display: flex;
+      gap: 18px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+    .expr-field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .expr-field-main { flex: 2 1 320px; }
+    .expr-field-dc   { flex: 1 1 220px; max-width: 320px; }
+    .expr-field-label {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--text-2);
+    }
+    .expr-field-aux {
+      font-weight: 400;
+      color: var(--text-3);
+      letter-spacing: 0;
+    }
+    .expr-field input {
+      width: 100%;
+      padding: 7px 10px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+    .expr-field input:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+    .expr-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    /* Truth-table mode keeps the old single-row layout for the random button. */
     .expr-row {
       display: flex;
       align-items: center;
       gap: 10px;
       flex-wrap: wrap;
     }
-    .expr-row #exprInput {
-      flex: 1;
-      min-width: 260px;
-      max-width: 420px;
-      font-family: var(--font-mono);
-    }
     .row-hint {
       font-size: 12px;
       color: var(--text-3);
-    }
-
-    /* Don't-care minterms row (sits below the expression input). */
-    .dc-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-    .dc-row .dc-label {
-      font-size: 12.5px;
-      color: var(--text-2);
-      font-weight: 500;
-      flex: 0 0 auto;
-    }
-    .dc-row .dc-hint {
-      font-size: 11.5px;
-      color: var(--text-3);
-      font-weight: 400;
-    }
-    .dc-row .dc-hint code {
-      font-family: var(--font-mono);
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      padding: 0 4px;
-      color: var(--text);
-    }
-    .dc-row #dcInput {
-      flex: 1;
-      min-width: 200px;
-      max-width: 280px;
-      font-family: var(--font-mono);
     }
 
     /* Cross-fade for path-specific sections when the slider switches. */
@@ -2128,16 +2139,23 @@
           .replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const dcList = state.answerKey && state.answerKey.dontCares ? state.answerKey.dontCares.join(', ') : '';
         return `
-          <div class="expr-row">
-            <input id="exprInput" type="text" placeholder="e.g. A'B + AC" autocomplete="off" value="${safe}">
-            <button id="applyBtn" type="button" class="apply-btn" disabled title="Type a valid expression and click Apply to enable the truth-table tools.">✓ Apply</button>
-            <button id="randomFnBtn" type="button">🎲 Random function</button>
+          <div class="expr-block">
+            <div class="expr-inputs">
+              <div class="expr-field expr-field-main">
+                <label class="expr-field-label" for="exprInput">Boolean expression</label>
+                <input id="exprInput" type="text" placeholder="e.g. A'B + AC" autocomplete="off" value="${safe}">
+              </div>
+              <div class="expr-field expr-field-dc">
+                <label class="expr-field-label" for="dcInput">Don't-care minterms <span class="expr-field-aux">(optional)</span></label>
+                <input id="dcInput" type="text" placeholder="e.g. 5, 7" autocomplete="off" value="${dcList}">
+              </div>
+            </div>
+            <div class="expr-actions">
+              <button id="applyBtn" type="button" class="apply-btn" disabled title="Type a valid expression and click Apply to enable the truth-table tools.">✓ Apply</button>
+              <button id="randomFnBtn" type="button">🎲 Random function</button>
+            </div>
+            <div class="err" id="exprErr"></div>
           </div>
-          <div class="dc-row">
-            <label class="dc-label" for="dcInput">Don't-care minterms <span class="dc-hint">(optional, e.g. <code>5, 7</code>)</span></label>
-            <input id="dcInput" type="text" placeholder="empty = none" autocomplete="off" value="${dcList}">
-          </div>
-          <div class="err" id="exprErr"></div>
         `;
       }
       return `
