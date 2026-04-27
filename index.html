@@ -968,6 +968,15 @@
       display: flex;
       justify-content: flex-end;
     }
+    /* When step-advance lives inside a step that reserves right-padding for the
+       helper bubble, escape that padding so Continue anchors at the actual
+       bottom-right corner of the card. */
+    .step-with-helper > .step-advance {
+      margin-right: -320px;
+    }
+    @media (max-width: 920px) {
+      .step-with-helper > .step-advance { margin-right: 0; }
+    }
 
     /* === Runaway-Yes confirmation modal (Reveal Answer + Fill F) === */
     .modal-overlay {
@@ -1924,14 +1933,29 @@
     function doSolve(mode) {
       state.solveMode = mode;
       const r = KMapCore.solve(state.values, state.n, mode, state.varNames);
-      state.solverGroups = r.groups.map((g, i) => ({
-        ...g,
-        color: paletteColor(i),
-        rects: KMapCore.groupRects(g.minterms, state.n, state.kmapLayout),
-      }));
+      // Auto-solve replaces the user's manual groups so it doesn't visually layer
+      // on top of them. The solver's solution becomes the user's "groups" — they
+      // appear in the manual group list and can be removed individually.
+      state.manualGroups = r.groups.map((g, i) => {
+        const cube = KMapCore.isValidCube(g.minterms, state.n);
+        return {
+          minterms: g.minterms.slice().sort((a, b) => a - b),
+          term: g.term,
+          color: paletteColor(i),
+          rects: KMapCore.groupRects(g.minterms, state.n, state.kmapLayout),
+          andMask: cube.ok ? cube.andMask : 0,
+          freeBits: cube.ok ? cube.freeBits : 0,
+        };
+      });
+      state.solverGroups = [];
       state.solverExpression = r.expression;
+      if (state.pendingSelection) state.pendingSelection.clear();
       cascadeChange(4);
+      renderManualGroupList();
       renderOverlays();
+      updatePendingHighlight();
+      const cgr = document.getElementById('checkGroupsResult');
+      if (cgr) cgr.textContent = '';
     }
 
     function renderOverlays(forceLabels) {
