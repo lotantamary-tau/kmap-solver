@@ -1132,6 +1132,20 @@
       border-color: var(--accent-hover);
       box-shadow: var(--shadow-md);
     }
+    /* Two-button K-map card: stack the buttons with little caption hints. */
+    .export-card-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .export-card-buttons button { margin-top: 8px; }
+    .export-card-hint {
+      font-size: 11.5px;
+      color: var(--text-3);
+      line-height: 1.4;
+      padding-left: 2px;
+    }
 
     /* === Step 4 Check my groups result list === */
     .tool-result.check-list {
@@ -2424,7 +2438,10 @@
       updateContinueVerifyButton();
     }
 
-    function renderOverlays(forceLabels) {
+    function renderOverlays(opts) {
+      // Back-compat: a bare `true` argument still means "force labels".
+      const forceLabels = (typeof opts === 'boolean') ? opts : !!(opts && opts.forceLabels);
+      const hideLabels  = (typeof opts === 'object' && opts) ? !!opts.hideLabels : false;
       // Render group overlays into every K-map container that has a .kmap-overlay
       // (Step 4's interactive K-map and Step 5's view-only reference K-map).
       const all = [...state.solverGroups, ...state.manualGroups];
@@ -2465,7 +2482,7 @@
             div.style.borderColor = g.color;
             div.style.backgroundColor = withAlpha(g.color, 0.18);
             div.title = g.term;
-            if (ri === 0 && (state.solutionVerified || forceLabels)) {
+            if (ri === 0 && !hideLabels && (state.solutionVerified || forceLabels)) {
               const label = document.createElement('span');
               // Mid-edge positions: top-center, right-center, bottom-center, left-center.
               // Symmetric on the rect outline; staggered by group index so adjacent
@@ -3337,7 +3354,10 @@
       });
     }
 
-    async function snapshotKmap() {
+    // Snapshot the K-map with the colored group rectangles, but no inline
+    // labels. Used by both K-map export variants (the "with solution" one
+    // composites the colored expression on top in a separate canvas pass).
+    async function snapshotKmapNoLabels() {
       if (typeof window.html2canvas !== 'function') throw new Error('Export libs failed to load — check your internet connection.');
       // Prefer Step 4's K-map (has the colored overlays). Fall back to Step 3's K-map if Step 4 hasn't been opened.
       const sourceStepId = document.querySelector('#step4KmapContainer .kmap') ? 'step4' : 'step3';
@@ -3345,7 +3365,24 @@
         let km = document.querySelector('#step4KmapContainer .kmap');
         if (!km) km = document.querySelector('#step3Body .kmap');
         if (!km) throw new Error('K-map not built yet.');
-        renderOverlays(true);
+        renderOverlays({ hideLabels: true });
+        try {
+          return await window.html2canvas(km, { scale: 2, backgroundColor: '#ffffff' });
+        } finally {
+          renderOverlays();
+        }
+      });
+    }
+
+    // K-map snapshot WITH inline labels — used by the composite PDF flow.
+    async function snapshotKmap() {
+      if (typeof window.html2canvas !== 'function') throw new Error('Export libs failed to load — check your internet connection.');
+      const sourceStepId = document.querySelector('#step4KmapContainer .kmap') ? 'step4' : 'step3';
+      return withStepVisible(sourceStepId, async () => {
+        let km = document.querySelector('#step4KmapContainer .kmap');
+        if (!km) km = document.querySelector('#step3Body .kmap');
+        if (!km) throw new Error('K-map not built yet.');
+        renderOverlays({ forceLabels: true });
         try {
           return await window.html2canvas(km, { scale: 2, backgroundColor: '#ffffff' });
         } finally {
@@ -3368,14 +3405,96 @@
       }
     }
 
-    async function downloadKmapPng() {
+    // Builds a canvas containing the verified solution expression with each
+    // term colored to match its K-map group rectangle. Used as a "title bar"
+    // for the K-map-with-solution export. Returns null if no groups exist.
+    function buildColoredExpressionCanvas(scale = 2) {
+      const groups = [...state.solverGroups, ...state.manualGroups];
+      if (groups.length === 0) return null;
+      const fontSize = 28 * scale;
+      const font = `bold ${fontSize}px ui-monospace, "SF Mono", "Cascadia Mono", "Menlo", monospace`;
+      const isPOS = state.solveMode === 'POS';
+      const separator = isPOS ? ' · ' : ' + ';
+      // Build [{text, color}] segments. The leading "F(...) = " is plain black;
+      // each group term takes its rect color; separators are muted gray.
+      const parts = [{ text: `F(${state.varNames.join(',')}) = `, color: '#1F1B16' }];
+      groups.forEach((g, i) => {
+        if (i > 0) parts.push({ text: separator, color: '#6B6358' });
+        parts.push({ text: g.term, color: g.color });
+      });
+      // Measure each segment.
+      const measureCanvas = document.createElement('canvas');
+      const measureCtx = measureCanvas.getContext('2d');
+      measureCtx.font = font;
+      const widths = parts.map(p => measureCtx.measureText(p.text).width);
+      const totalWidth = widths.reduce((a, b) => a + b, 0);
+      const verticalPadding = 14 * scale;
+      const height = fontSize * 1.3 + verticalPadding * 2;
+      // Render.
+      const out = document.createElement('canvas');
+      out.width = Math.ceil(totalWidth);
+      out.height = Math.ceil(height);
+      const ctx = out.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, out.width, out.height);
+      ctx.font = font;
+      ctx.textBaseline = 'middle';
+      let x = 0;
+      parts.forEach((p, i) => {
+        ctx.fillStyle = p.color;
+        ctx.fillText(p.text, x, out.height / 2);
+        x += widths[i];
+      });
+      return out;
+    }
+
+    async function downloadCleanKmapPng() {
       const errEl = document.getElementById('exportErr');
       errEl.textContent = '';
       try {
-        const canvas = await snapshotKmap();
+        const canvas = await snapshotKmapNoLabels();
         const a = document.createElement('a');
         a.href = canvas.toDataURL('image/png');
-        a.download = `kmap-solver-kmap-${state.varNames.join('')}.png`;
+        a.download = `kmap-solver-kmap-clean-${state.varNames.join('')}.png`;
+        a.click();
+      } catch (e) {
+        errEl.textContent = e.message || 'Export failed.';
+      }
+    }
+
+    async function downloadKmapWithSolutionPng() {
+      const errEl = document.getElementById('exportErr');
+      errEl.textContent = '';
+      try {
+        const km = await snapshotKmapNoLabels();
+        const expr = buildColoredExpressionCanvas();
+        if (!expr) {
+          // No solution to attach — just download the clean K-map.
+          const a = document.createElement('a');
+          a.href = km.toDataURL('image/png');
+          a.download = `kmap-solver-kmap-clean-${state.varNames.join('')}.png`;
+          a.click();
+          return;
+        }
+        const scale = 2;
+        const padding = 24 * scale;
+        const gap = 12 * scale;
+        const w = Math.max(km.width, expr.width) + padding * 2;
+        const h = padding * 2 + expr.height + gap + km.height;
+        const composite = document.createElement('canvas');
+        composite.width = w;
+        composite.height = h;
+        const ctx = composite.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        // Center each piece horizontally.
+        const exprX = (w - expr.width) / 2;
+        const kmapX = (w - km.width) / 2;
+        ctx.drawImage(expr, exprX, padding);
+        ctx.drawImage(km, kmapX, padding + expr.height + gap);
+        const a = document.createElement('a');
+        a.href = composite.toDataURL('image/png');
+        a.download = `kmap-solver-kmap-solution-${state.varNames.join('')}.png`;
         a.click();
       } catch (e) {
         errEl.textContent = e.message || 'Export failed.';
@@ -3459,8 +3578,13 @@
         <div class="export-card">
           <div class="export-card-icon">🗺️</div>
           <h4>K-map</h4>
-          <p>The K-map with your group overlays and labels as a PNG image.</p>
-          <button id="dlKmapPngBtn" type="button">⬇ Download PNG</button>
+          <p>Two flavors — choose the one your homework wants.</p>
+          <div class="export-card-buttons">
+            <button id="dlKmapCleanBtn" type="button">⬇ Clean K-map</button>
+            <span class="export-card-hint">No labels — just the colored covers.</span>
+            <button id="dlKmapSolutionBtn" type="button">⬇ With solution above</button>
+            <span class="export-card-hint">Function on top, terms colored to match.</span>
+          </div>
         </div>
         <div class="export-card">
           <div class="export-card-icon">📄</div>
@@ -3477,11 +3601,13 @@
       body.appendChild(errEl);
 
       document.getElementById('dlTtPngBtn').addEventListener('click', downloadTruthTablePng);
-      document.getElementById('dlKmapPngBtn').addEventListener('click', downloadKmapPng);
+      document.getElementById('dlKmapCleanBtn').addEventListener('click', downloadCleanKmapPng);
+      document.getElementById('dlKmapSolutionBtn').addEventListener('click', downloadKmapWithSolutionPng);
       document.getElementById('dlPdfBtn').addEventListener('click', downloadPdf);
       if (!state._exportReady) {
         document.getElementById('dlTtPngBtn').disabled = true;
-        document.getElementById('dlKmapPngBtn').disabled = true;
+        document.getElementById('dlKmapCleanBtn').disabled = true;
+        document.getElementById('dlKmapSolutionBtn').disabled = true;
         document.getElementById('dlPdfBtn').disabled = true;
       }
     }
