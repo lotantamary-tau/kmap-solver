@@ -879,6 +879,90 @@
       background: #fff;
     }
 
+    /* === Step 5 verify result panel === */
+    .verify-result {
+      margin: 14px 0 6px;
+      padding: 12px 16px;
+      font-size: 13.5px;
+      line-height: 1.55;
+      white-space: pre-line;
+      border-radius: var(--radius-md);
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--border-strong);
+      color: var(--text-2);
+    }
+    .verify-result:empty { display: none; }
+    .verify-result.success {
+      background: rgba(21, 128, 61, 0.06);
+      border-color: rgba(21, 128, 61, 0.25);
+      border-left-color: var(--success);
+      color: var(--success);
+    }
+    .verify-result.error {
+      background: var(--error-soft);
+      border-color: rgba(185, 28, 28, 0.2);
+      border-left-color: var(--error);
+      color: var(--error);
+    }
+
+    /* === Step 6 export cards === */
+    .export-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin: 18px 0;
+    }
+    .export-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+    .export-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--accent);
+    }
+    .export-card-icon {
+      font-size: 28px;
+      line-height: 1;
+      margin-bottom: 4px;
+    }
+    .export-card h4 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .export-card p {
+      margin: 0;
+      flex: 1;
+      font-size: 12.5px;
+      color: var(--text-2);
+      line-height: 1.5;
+    }
+    .export-card button {
+      align-self: flex-start;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      box-shadow: var(--shadow-sm);
+      margin-top: 6px;
+    }
+    .export-card button:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      box-shadow: var(--shadow-md);
+    }
+
     /* === Step 4 pending selection bar + groups list === */
     .pending-bar {
       display: flex;
@@ -2161,29 +2245,79 @@
     function renderVerify() {
       const body = document.getElementById('step5Body');
       body.innerHTML = '';
-      renderExprBanner('step5Body');
-      body.insertAdjacentHTML('beforeend', `
-        <p style="margin: 4px 0; color: #666; font-size: 14px;">Type the simplified Boolean expression you read off your K-map grouping. The app will compare it logically to F. If correct, each group's term will be revealed.</p>
-        <div style="margin-top: 8px;">
-          <input id="verifyInput" type="text" style="width: 320px;" placeholder="e.g. A + BC'D'">
-          <button id="verifyBtn">Check</button>
-          <button id="continueExportBtn" disabled>Continue to export →</button>
-          <button id="revealAnswerBtn" style="margin-left: 16px;">🔍 Reveal answer</button>
-        </div>
-        <div id="verifyResult" style="margin-top: 10px; font-size: 14px; white-space: pre-line;"></div>
-      `);
+
+      // Helper bubble: banner + compact truth table.
+      const refSection = document.createElement('div');
+      refSection.className = 'step-helper-corner helper-bubble';
+      if (state.answerKey) refSection.classList.add('has-banner');
+      const tableLabel = document.createElement('h4');
+      tableLabel.textContent = 'Truth table';
+      refSection.appendChild(tableLabel);
+      refSection.appendChild(buildTruthTable({ readOnly: true, compact: true }));
+      body.appendChild(refSection);
+      renderExprBanner(refSection);
+
+      // Main content (right-padded for the helper bubble).
+      const content = document.createElement('div');
+      content.className = 'step-with-helper';
+      body.appendChild(content);
+
+      // Step note.
+      const note = document.createElement('p');
+      note.className = 'step-note';
+      note.textContent = "Read the simplified Boolean expression off your K-map grouping and type it below. The app will compare it logically to F.";
+      content.appendChild(note);
+
+      // Verify field row.
+      const verifyRow = document.createElement('div');
+      verifyRow.className = 'field-row';
+      verifyRow.innerHTML = `
+        <label class="field-label" for="verifyInput">Simplified expression</label>
+        <input id="verifyInput" type="text" placeholder="e.g. A + BC'D'" autocomplete="off">
+        <button id="verifyBtn" type="button">Check</button>
+      `;
+      content.appendChild(verifyRow);
+
+      // Result feedback.
+      const result = document.createElement('div');
+      result.id = 'verifyResult';
+      result.className = 'verify-result';
+      content.appendChild(result);
+
+      // Fallback row: Reveal answer (with prank).
+      const fallback = document.createElement('div');
+      fallback.className = 'step-tools-fallback';
+      fallback.innerHTML = `
+        <button id="revealAnswerBtn" type="button" class="secondary-btn">🔍 Reveal answer</button>
+        <span class="row-hint">Stuck? Open the modal and try to catch the runaway button.</span>
+      `;
+      content.appendChild(fallback);
+
+      // Continue.
+      const advance = document.createElement('div');
+      advance.className = 'step-advance';
+      advance.innerHTML = `<button id="continueExportBtn" type="button" disabled>Continue →</button>`;
+      content.appendChild(advance);
+
+      // Wire handlers.
       document.getElementById('verifyBtn').addEventListener('click', verifyUserExpression);
+      document.getElementById('verifyInput').addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); verifyUserExpression(); }
+      });
       document.getElementById('continueExportBtn').addEventListener('click', () => {
         state.step = 6;
-        document.getElementById('step6').classList.remove('disabled');
         renderAll();
       });
       document.getElementById('revealAnswerBtn').addEventListener('click', openRevealPrank);
-      // If already verified, restore that state visually
+
+      // Restore prior visual state if already verified.
       if (state.solutionVerified) {
         document.getElementById('continueExportBtn').disabled = false;
-        document.getElementById('verifyResult').textContent = '✓ Correct! Group terms revealed below.';
-        document.getElementById('verifyResult').style.color = '#0a0';
+        const out = document.getElementById('verifyResult');
+        out.textContent = state.verifiedExpression
+          ? `✓ Correct! F = ${state.verifiedExpression}`
+          : '✓ Correct — group terms revealed.';
+        out.classList.add('success');
       }
     }
 
@@ -2309,7 +2443,9 @@
       if (cont) cont.disabled = false;
       const out = document.getElementById('verifyResult');
       if (out) {
-        out.style.color = 'var(--accent)';
+        out.classList.remove('error');
+        out.classList.add('success');
+        out.style.color = '';
         out.textContent = `🤫 Answer revealed:\n  • SOP: F = ${sop.expression}\n  • POS: F = ${pos.expression}`;
       }
       renderOverlays();
@@ -2356,17 +2492,25 @@
     function verifyUserExpression() {
       const src = document.getElementById('verifyInput').value.trim();
       const out = document.getElementById('verifyResult');
-      if (!src) { out.style.color = '#c00'; out.textContent = 'Please type an expression.'; return; }
-      // Secret: typing the magic phrase reveals the minimal SOP/POS answer and marks verified.
-      // (Phrase: xyzzy — classic adventure-game magic word.)
+      out.classList.remove('success', 'error');
+      out.style.color = '';
+      if (!src) {
+        out.classList.add('error');
+        out.textContent = 'Please type an expression.';
+        return;
+      }
+      // Secret backdoor: typing the magic phrase reveals the answer.
       if (/^(xyzzy|!reveal)$/i.test(src)) {
         revealAnswer();
         return;
       }
       const r = KMapCore.parseExpression(src, state.varNames);
-      if (!r.ok) { out.style.color = '#c00'; out.textContent = 'Parse error: ' + r.error; return; }
-      // Compare evaluated expression vs state.values for every minterm.
-      // Treat 'X' (don't-care) cells as "either is acceptable" (don't compare).
+      if (!r.ok) {
+        out.classList.add('error');
+        out.textContent = 'Parse error: ' + r.error;
+        return;
+      }
+      // Compare evaluated expression vs state.values for every minterm. X cells are wildcards.
       const total = state.values.length;
       let firstMismatch = null;
       for (let m = 0; m < total; m++) {
@@ -2376,24 +2520,23 @@
         if (actual !== expected) { firstMismatch = m; break; }
       }
       if (firstMismatch !== null) {
-        out.style.color = '#c00';
+        out.classList.add('error');
         out.textContent = `✗ Not equivalent. Your expression evaluates differently at minterm m=${firstMismatch} (you said ${KMapCore.evaluateExpr(r.ast, firstMismatch, state.n)}, but F(m=${firstMismatch}) = ${state.values[firstMismatch]}).\nTry again.`;
         return;
       }
-      // Correct
+      // Correct.
       state.solutionVerified = true;
       state.verifiedExpression = src;
-      out.style.color = '#0a0';
-      // Show what the user typed plus the per-group terms
-      const groupTerms = [...state.solverGroups, ...state.manualGroups].map((g, i) => `  • Group ${i+1} (${g.color}): ${g.term}`).join('\n');
+      out.classList.add('success');
+      const groupTerms = [...state.solverGroups, ...state.manualGroups]
+        .map((g, i) => `  • Group ${i + 1} (${g.color}): ${g.term}`).join('\n');
       const haveAuto = state.solverGroups.length > 0;
       const autoExpr = haveAuto ? state.solverGroups.map(g => g.term).join(' + ') : null;
-      let body = `✓ Correct! F = ${src}`;
-      if (autoExpr && autoExpr !== src) body += `\n   (Solver's minimal form: ${autoExpr})`;
-      if (groupTerms) body += `\n\nGroup terms:\n${groupTerms}`;
-      out.textContent = body;
+      let bodyText = `✓ Correct! F = ${src}`;
+      if (autoExpr && autoExpr !== src) bodyText += `\n   (Solver's minimal form: ${autoExpr})`;
+      if (groupTerms) bodyText += `\n\nGroup terms:\n${groupTerms}`;
+      out.textContent = bodyText;
       document.getElementById('continueExportBtn').disabled = false;
-      // Re-render overlays + chips so terms appear
       renderOverlays();
       renderManualGroupList();
     }
@@ -2505,13 +2648,44 @@
     function renderStep6() {
       const body = document.getElementById('step6Body');
       body.innerHTML = '';
-      renderExprBanner('step6Body');
-      body.insertAdjacentHTML('beforeend', `
-        <button id="dlTtPngBtn">Download Truth Table PNG</button>
-        <button id="dlKmapPngBtn" style="margin-left: 8px;">Download K-map PNG</button>
-        <button id="dlPdfBtn" style="margin-left: 8px;">Download PDF</button>
-        <span class="err" id="exportErr" style="margin-left: 12px;"></span>
-      `);
+      renderExprBanner(body);
+
+      // Step note.
+      const note = document.createElement('p');
+      note.className = 'step-note';
+      note.textContent = "Download your work to submit. Exports show only the truth table and K-map (with group overlays) — no app chrome, ready for homework.";
+      body.appendChild(note);
+
+      // Export cards.
+      const grid = document.createElement('div');
+      grid.className = 'export-grid';
+      grid.innerHTML = `
+        <div class="export-card">
+          <div class="export-card-icon">📋</div>
+          <h4>Truth Table</h4>
+          <p>The completed truth table as a PNG image.</p>
+          <button id="dlTtPngBtn" type="button">⬇ Download PNG</button>
+        </div>
+        <div class="export-card">
+          <div class="export-card-icon">🗺️</div>
+          <h4>K-map</h4>
+          <p>The K-map with your group overlays and labels as a PNG image.</p>
+          <button id="dlKmapPngBtn" type="button">⬇ Download PNG</button>
+        </div>
+        <div class="export-card">
+          <div class="export-card-icon">📄</div>
+          <h4>Composite PDF</h4>
+          <p>Truth table, K-map, and the simplified function on a single submittable page.</p>
+          <button id="dlPdfBtn" type="button">⬇ Download PDF</button>
+        </div>
+      `;
+      body.appendChild(grid);
+
+      const errEl = document.createElement('div');
+      errEl.className = 'err';
+      errEl.id = 'exportErr';
+      body.appendChild(errEl);
+
       document.getElementById('dlTtPngBtn').addEventListener('click', downloadTruthTablePng);
       document.getElementById('dlKmapPngBtn').addEventListener('click', downloadKmapPng);
       document.getElementById('dlPdfBtn').addEventListener('click', downloadPdf);
