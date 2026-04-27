@@ -581,6 +581,16 @@
       line-height: 1.5;
       margin-top: 8px;
     }
+    .eval-prompt code {
+      font-family: var(--font-mono);
+      font-style: normal;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0 4px;
+      color: var(--text);
+    }
+    .eval-prompt strong { color: var(--accent); font-style: normal; }
 
     /* Expression line — clickable AST chunks. Stays on one line; horizontal
        scroll if the substituted/simplified form exceeds the panel width. */
@@ -2467,22 +2477,24 @@
           wrapper.appendChild(lp);
         }
 
-        // For each operand, decide if it's part of the currently-selected pair.
-        const isPairSel = selection && selection.kind === 'pair'
+        // For each operand and operator, decide if it falls within the
+        // currently-selected range (if any).
+        const isRangeSel = selection && selection.kind === 'range'
           && evalPathsEqual(selection.chainPath, path)
           && selection.chainOp === node.op;
 
         operands.forEach((operand, i) => {
-          const inLeftOfSel  = isPairSel && i === selection.pairIndex;
-          const inRightOfSel = isPairSel && i === selection.pairIndex + 1;
+          // Operand i is in range if fromOp <= i <= toOp+1.
+          const inRange = isRangeSel && i >= selection.fromOp && i <= selection.toOp + 1;
 
           const operandWrap = document.createElement('span');
           operandWrap.className = 'eval-operand';
-          if (inLeftOfSel || inRightOfSel) operandWrap.classList.add('is-selected');
+          if (inRange) operandWrap.classList.add('is-selected');
           operandWrap.appendChild(evalRenderNode(operand.node, operand.path, node.op, selection));
           wrapper.appendChild(operandWrap);
 
-          // Emit the pair operator AFTER each operand except the last.
+          // Emit the chain operator AFTER each operand except the last.
+          // Operator i is in range if fromOp <= i <= toOp.
           if (i < operands.length - 1) {
             const op = document.createElement('span');
             op.className = 'eval-chunk eval-op ' + (isOr ? 'eval-op-or' : 'eval-op-and');
@@ -2490,7 +2502,9 @@
             op.dataset.evalChainPath = evalPathToString(path);
             op.dataset.evalChainOp = node.op;
             op.dataset.evalPairIndex = String(i);
-            if (isPairSel && selection.pairIndex === i) op.classList.add('is-selected');
+            if (isRangeSel && i >= selection.fromOp && i <= selection.toOp) {
+              op.classList.add('is-selected');
+            }
             op.textContent = isOr ? ' + ' : '·';
             wrapper.appendChild(op);
           }
@@ -2554,9 +2568,10 @@
       if (!a || !b) return false;
       if (a.kind !== b.kind) return false;
       if (a.kind === 'node') return evalPathsEqual(a.path, b.path);
-      // pair
+      // range
       return a.chainOp === b.chainOp
-          && a.pairIndex === b.pairIndex
+          && a.fromOp === b.fromOp
+          && a.toOp === b.toOp
           && evalPathsEqual(a.chainPath, b.chainPath);
     }
 
@@ -2579,8 +2594,22 @@
       evalSetSelection({ kind: 'node', path });
     }
 
-    function evalSelectPair(chainPath, chainOp, pairIndex) {
-      evalSetSelection({ kind: 'pair', chainPath, chainOp, pairIndex });
+    // Click on a chain operator. If shift is held AND the existing selection
+    // is a range in the same chain, extend the range to span both operators.
+    // Otherwise start a fresh range covering just that operator's two operands.
+    function evalSelectChainOp(chainPath, chainOp, opIndex, shift) {
+      const curr = state.evaluator && state.evaluator.selection;
+      if (shift
+          && curr
+          && curr.kind === 'range'
+          && curr.chainOp === chainOp
+          && evalPathsEqual(curr.chainPath, chainPath)) {
+        const fromOp = Math.min(curr.fromOp, opIndex);
+        const toOp   = Math.max(curr.toOp,   opIndex);
+        evalSetSelection({ kind: 'range', chainPath, chainOp, fromOp, toOp });
+        return;
+      }
+      evalSetSelection({ kind: 'range', chainPath, chainOp, fromOp: opIndex, toOp: opIndex });
     }
 
     function evalUndo() {
@@ -2609,22 +2638,20 @@
           },
         };
       }
-      // sel.kind === 'pair'
+      // sel.kind === 'range' — operands[fromOp..toOp+1] inclusive.
       const chainNode = evalGetNode(ev.ast, sel.chainPath);
       const operands = evalFlattenChain(chainNode, sel.chainOp, sel.chainPath);
-      const left = operands[sel.pairIndex];
-      const right = operands[sel.pairIndex + 1];
-      if (!left || !right) return null;
-      const synthetic = { op: sel.chainOp, args: [left.node, right.node] };
+      const rangeOperands = operands.slice(sel.fromOp, sel.toOp + 2);
+      if (rangeOperands.length < 2) return null;
+      const synthetic = evalBuildLeftAssoc(rangeOperands.map(o => o.node), sel.chainOp);
       return {
         value: evalAst(synthetic),
         replace(userAst) {
-          // Splice the pair: keep operands before, replace with userAst, keep operands after.
+          // Splice: keep operands before fromOp, insert userAst, keep operands after toOp+1.
           const newOperandNodes = operands
-            .slice(0, sel.pairIndex)
-            .map(o => o.node)
+            .slice(0, sel.fromOp).map(o => o.node)
             .concat([userAst])
-            .concat(operands.slice(sel.pairIndex + 2).map(o => o.node));
+            .concat(operands.slice(sel.toOp + 2).map(o => o.node));
           const newChain = evalBuildLeftAssoc(newOperandNodes, sel.chainOp);
           return evalSetNode(ev.ast, sel.chainPath, newChain);
         },
@@ -2794,23 +2821,25 @@
         // Nothing selected — prompt user to click a chunk.
         const prompt = document.createElement('div');
         prompt.className = 'eval-prompt';
-        prompt.textContent = "Click an operator above (a ' , · , or +) to replace its sub-expression. Click a paren ( ) to grab the whole sub-expression inside it.";
+        prompt.innerHTML = "Click an operator above (a <code>'</code>, <code>·</code>, or <code>+</code>) to grab its 2 operands. <strong>Shift-click</strong> a second operator in the same chain to extend the selection across more operands. Click a paren <code>(</code> <code>)</code> to grab the whole sub-expression inside it.";
         panel.appendChild(prompt);
       }
 
       // Wire chunk clicks (delegated on the expression line). The clicked
-      // element's data-eval-kind tells us whether it's a single-node
-      // selection (NOT) or a pair selection (a chain operator).
+      // element's data-eval-kind tells us whether it's a node selection
+      // (NOT operator or chain paren) or a chain operator. Shift-click on
+      // a chain operator extends an existing range in the same chain.
       exprLine.addEventListener('click', e => {
         const chunk = e.target.closest('[data-eval-kind]');
         if (!chunk) return;
         if (chunk.dataset.evalKind === 'node') {
           evalSelectNode(evalPathFromString(chunk.dataset.evalPath));
         } else if (chunk.dataset.evalKind === 'pair') {
-          evalSelectPair(
+          evalSelectChainOp(
             evalPathFromString(chunk.dataset.evalChainPath),
             chunk.dataset.evalChainOp,
             parseInt(chunk.dataset.evalPairIndex, 10),
+            e.shiftKey,
           );
         }
       });
@@ -2864,9 +2893,13 @@
       //   rowMinterm: number,
       //   ast: <current AST after substitutions/replacements>,
       //   selection: null | {kind:'node', path:number[]}
-      //                   | {kind:'pair', chainPath:number[], chainOp:'AND'|'OR', pairIndex:number},
+      //                   | {kind:'range', chainPath:number[], chainOp:'AND'|'OR',
+      //                      fromOp:number, toOp:number}
       //   history: [{ast, selection}, ...]   // for ↩ undo
       // }
+      // 'range' selections cover operands[fromOp..toOp+1] (inclusive). When
+      // fromOp === toOp it's a 2-operand pair (most common); shift-click on
+      // another chain operator extends to a wider contiguous range.
       evaluator: null,
       pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
