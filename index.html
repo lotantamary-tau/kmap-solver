@@ -1287,6 +1287,76 @@
       border-color: var(--success);
       background: rgba(21, 128, 61, 0.06);
     }
+
+    /* Hold-to-give-up: progress bar fills as the user holds the button. */
+    .modal-giveup-hold {
+      position: relative;
+      overflow: hidden;
+      padding: 9px 18px;
+      letter-spacing: 0.04em;
+      font-weight: 600;
+    }
+    .modal-giveup-hold .modal-giveup-text {
+      position: relative;
+      z-index: 1;
+    }
+    .modal-giveup-hold::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: var(--accent);
+      transform: scaleX(0);
+      transform-origin: left center;
+      transition: transform 0s linear;
+      z-index: 0;
+      opacity: 0.45;
+    }
+    .modal-giveup-hold.is-holding::after {
+      transform: scaleX(1);
+      transition: transform var(--hold-ms, 1500ms) linear;
+    }
+
+    /* Type-to-surrender input */
+    .modal-give-up-prompt {
+      font-size: 12.5px;
+      color: var(--text-2);
+    }
+    .modal-give-up-prompt code {
+      font-family: var(--font-mono);
+      background: rgba(31, 27, 22, 0.06);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .modal-giveup-input {
+      width: 240px;
+      padding: 8px 12px;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .modal-giveup-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    /* Escalating button: shake on each stage transition. */
+    @keyframes giveUpShake {
+      0%, 100% { transform: translateX(0); }
+      25%      { transform: translateX(-4px); }
+      50%      { transform: translateX(4px); }
+      75%      { transform: translateX(-2px); }
+    }
+    .modal-giveup-escalate.shake {
+      animation: giveUpShake 0.32s ease;
+    }
     @keyframes modalFadeIn {
       from { opacity: 0; }
       to { opacity: 1; }
@@ -2123,7 +2193,7 @@
       }
     }
 
-    // Skip-practice prank for Auto-solve grouping (Step 4). Runaway Yes.
+    // Step 4 — Auto-solve grouping. Surrender = type "I surrender".
     function openAutoSolvePrank() {
       const mode = state.solveMode || 'SOP';
       openRunawayConfirm({
@@ -2131,7 +2201,8 @@
         message: `This auto-solves the K-map as ${mode} (groups all ${mode === 'SOP' ? '1s' : '0s'}). You'll lose the manual grouping practice.`,
         yesText: 'Yes, solve it for me',
         cancelText: "OK fine, I'll try myself",
-        giveUpText: '🏳️ I give up — just solve it',
+        giveUpKind: 'type',
+        giveUpPhrase: 'I surrender',
         onConfirm: () => doSolve(state.solveMode || 'SOP'),
       });
     }
@@ -2467,9 +2538,16 @@
     }
 
     // Generic confirmation modal — optional runaway-Yes prank.
-    // opts: { title, message, yesText, cancelText, giveUpText, onConfirm, dodge }
-    //   dodge: when true (default), Yes button runs from the cursor and only unlocks
-    //   when the user clicks the give-up button. When false, Yes works normally.
+    // opts: {
+    //   title, message, yesText, cancelText, onConfirm,
+    //   dodge: bool — runaway Yes button (default true)
+    //   giveUpDelayMs: ms after first dodge before the give-up section reveals (default 2800)
+    //   giveUpKind: 'click' | 'hold' | 'type' | 'escalate' — different surrender mechanics
+    //   giveUpText: button label or single stage text
+    //   giveUpStages: array of strings for 'escalate' kind
+    //   giveUpPhrase: string the user must type for 'type' kind
+    //   giveUpHoldMs: hold duration in ms for 'hold' kind (default 1500)
+    // }
     function openRunawayConfirm(opts) {
       const {
         title,
@@ -2479,19 +2557,17 @@
         giveUpText,
         onConfirm,
         dodge = true,
-        giveUpDelayMs = 2800, // hide give-up button until N ms after the first dodge
+        giveUpDelayMs = 2800,
+        giveUpKind = 'click',
+        giveUpStages,
+        giveUpPhrase = 'I surrender',
+        giveUpHoldMs = 1500,
       } = opts;
 
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
       const box = document.createElement('div');
       box.className = 'modal-box';
-      const giveUpHTML = giveUpText
-        ? `<div class="modal-give-up">
-             <span class="modal-give-up-label">Ready to give up? 🏳️</span>
-             <button class="modal-giveup-btn" type="button">${giveUpText}</button>
-           </div>`
-        : '';
       box.innerHTML = `
         <h3>${title}</h3>
         <p>${message}</p>
@@ -2499,23 +2575,50 @@
           <button class="modal-cancel" type="button">${cancelText}</button>
           <button class="modal-yes" type="button">${yesText}</button>
         </div>
-        ${giveUpHTML}
       `;
       overlay.appendChild(box);
       document.body.appendChild(overlay);
 
       const yes = box.querySelector('.modal-yes');
       const cancel = box.querySelector('.modal-cancel');
-      const giveUp = box.querySelector('.modal-giveup-btn');
-      const giveUpWrap = box.querySelector('.modal-give-up');
 
-      // When dodge is on, hide the give-up section initially and only reveal it
-      // a few seconds after the user starts chasing the Yes button.
-      if (dodge && giveUpWrap) giveUpWrap.classList.add('is-hidden');
+      // Build the give-up section dynamically based on kind.
+      let giveUpWrap = null;
+      if (giveUpText || giveUpStages) {
+        giveUpWrap = document.createElement('div');
+        giveUpWrap.className = 'modal-give-up';
+        if (dodge) giveUpWrap.classList.add('is-hidden');
+        const label = document.createElement('span');
+        label.className = 'modal-give-up-label';
+        label.textContent = 'Ready to give up? 🏳️';
+        giveUpWrap.appendChild(label);
+        setupGiveUpKind(giveUpKind, giveUpWrap, {
+          giveUpText, giveUpStages, giveUpPhrase, giveUpHoldMs,
+        }, () => handleUnlock());
+        box.appendChild(giveUpWrap);
+      }
 
       let givenUp = false;
       let firstDodge = false;
       let revealTimer = null;
+
+      function handleUnlock() {
+        if (dodge) {
+          givenUp = true;
+          yes.classList.add('given-up');
+          if (giveUpWrap) {
+            giveUpWrap.querySelectorAll('button, input').forEach(el => el.disabled = true);
+            const lbl = giveUpWrap.querySelector('.modal-give-up-label');
+            if (lbl) {
+              lbl.textContent = '✓ Unlocked — click the red button';
+              lbl.style.color = 'var(--success)';
+            }
+          }
+        } else {
+          close();
+          if (onConfirm) onConfirm();
+        }
+      }
 
       function dodgeFn(mouseX, mouseY) {
         if (!dodge) return;
@@ -2560,6 +2663,10 @@
             absY - yesH / 2 < cancelRect.bottom + 8;
           if (farFromCursor && !cancelOverlap) break;
         } while (true);
+        // Release the right anchor (set in CSS for the initial position) so the
+        // explicit left value controls the button's position — otherwise both
+        // left and right are applied and the button stretches across the modal.
+        yes.style.right = 'auto';
         yes.style.left = nx + 'px';
         yes.style.top = ny + 'px';
       }
@@ -2582,25 +2689,98 @@
       }
 
       cancel.addEventListener('click', close);
-      if (giveUp) {
-        giveUp.addEventListener('click', () => {
-          if (dodge) {
-            // Runaway mode: clicking give-up freezes Yes so the user can finally click it.
-            givenUp = true;
-            yes.classList.add('given-up');
-            giveUp.disabled = true;
-            giveUp.textContent = '✓ Unlocked — click the red button';
-          } else {
-            // No-runaway mode: give-up is just an alternate way to confirm.
-            close();
-            if (onConfirm) onConfirm();
-          }
-        });
-      }
       yes.addEventListener('click', () => {
         close();
         if (onConfirm) onConfirm();
       });
+    }
+
+    // Build and wire the give-up UI based on its kind. Calls onUnlock() when the
+    // user has fulfilled the surrender condition.
+    function setupGiveUpKind(kind, container, opts, onUnlock) {
+      if (kind === 'hold') {
+        const btn = document.createElement('button');
+        btn.className = 'modal-giveup-btn modal-giveup-hold';
+        btn.type = 'button';
+        btn.style.setProperty('--hold-ms', (opts.giveUpHoldMs || 1500) + 'ms');
+        btn.innerHTML = `<span class="modal-giveup-text">${opts.giveUpText || 'HOLD TO GIVE UP'}</span>`;
+        let holdTimer = null;
+        function startHold(e) {
+          if (e) e.preventDefault();
+          if (btn.disabled) return;
+          btn.classList.add('is-holding');
+          holdTimer = setTimeout(() => {
+            holdTimer = null;
+            onUnlock();
+          }, opts.giveUpHoldMs || 1500);
+        }
+        function endHold() {
+          if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+          btn.classList.remove('is-holding');
+        }
+        btn.addEventListener('mousedown', startHold);
+        btn.addEventListener('touchstart', startHold, { passive: false });
+        btn.addEventListener('mouseup', endHold);
+        btn.addEventListener('mouseleave', endHold);
+        btn.addEventListener('touchend', endHold);
+        btn.addEventListener('touchcancel', endHold);
+        container.appendChild(btn);
+        return;
+      }
+      if (kind === 'type') {
+        const phrase = opts.giveUpPhrase || 'I surrender';
+        const prompt = document.createElement('span');
+        prompt.className = 'modal-give-up-prompt';
+        prompt.innerHTML = `Type <code>${phrase}</code> to surrender`;
+        container.appendChild(prompt);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'modal-giveup-input';
+        input.placeholder = 'Type here…';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        input.addEventListener('input', () => {
+          if (input.disabled) return;
+          if (input.value.trim().toLowerCase() === phrase.toLowerCase()) {
+            onUnlock();
+          }
+        });
+        container.appendChild(input);
+        return;
+      }
+      if (kind === 'escalate') {
+        const stages = (Array.isArray(opts.giveUpStages) && opts.giveUpStages.length > 0)
+          ? opts.giveUpStages
+          : [opts.giveUpText || 'I give up'];
+        let stage = 0;
+        const btn = document.createElement('button');
+        btn.className = 'modal-giveup-btn modal-giveup-escalate';
+        btn.type = 'button';
+        btn.textContent = stages[0];
+        btn.addEventListener('click', () => {
+          if (btn.disabled) return;
+          stage++;
+          if (stage >= stages.length) {
+            onUnlock();
+          } else {
+            btn.textContent = stages[stage];
+            btn.classList.remove('shake');
+            void btn.offsetWidth;
+            btn.classList.add('shake');
+          }
+        });
+        container.appendChild(btn);
+        return;
+      }
+      // 'click' (default)
+      const btn = document.createElement('button');
+      btn.className = 'modal-giveup-btn';
+      btn.type = 'button';
+      btn.textContent = opts.giveUpText || 'I give up';
+      btn.addEventListener('click', () => {
+        if (!btn.disabled) onUnlock();
+      });
+      container.appendChild(btn);
     }
 
     // Performs the actual reveal: solves SOP/POS, marks verified, fills overlays, shows the answer.
@@ -2628,39 +2808,47 @@
       renderManualGroupList();
     }
 
-    // Reveal Answer (Step 5): Yes runs away forever. Click "I give up" to unlock it,
-    // or use the secret xyzzy/!reveal phrase in the verify input as a hidden backdoor.
+    // Step 5 — Reveal Answer. Surrender = three escalating clicks.
+    // Secret xyzzy/!reveal phrase in the verify input still works as a backdoor.
     function openRevealPrank() {
       openRunawayConfirm({
         title: 'Are you sure?',
         message: 'You want to reveal the answer?',
         yesText: 'Yes, reveal it',
         cancelText: "OK fine, I'll keep trying",
-        giveUpText: '🏳️ I give up — show me the answer',
+        giveUpKind: 'escalate',
+        giveUpStages: [
+          "I'd like a hint…",
+          "OK, just tell me",
+          "Please, I give up 🏳️",
+        ],
         onConfirm: revealAnswer,
       });
     }
 
-    // Skip-practice prank for "Fill F from expression" (Step 2). Runaway Yes.
+    // Step 2 — Fill F from expression. Surrender = single click.
     function openAutoFillPrank() {
       openRunawayConfirm({
         title: 'Skip the practice?',
         message: "This fills the F column automatically from the expression. You'll lose the manual practice.",
         yesText: 'Yes, fill it for me',
         cancelText: "OK fine, I'll try myself",
+        giveUpKind: 'click',
         giveUpText: '🏳️ I give up — just show me',
         onConfirm: autoFillFromExpression,
       });
     }
 
-    // Skip-practice prank for "Auto-fill from truth table" (Step 3 K-map).
+    // Step 3 — Auto-fill K-map from truth table. Surrender = hold the button.
     function openAutoFillKmapPrank() {
       openRunawayConfirm({
         title: 'Skip the manual transfer?',
         message: "This fills the K-map automatically from the truth table. You'll lose the practice of mapping rows to cells.",
         yesText: 'Yes, fill it for me',
         cancelText: "OK fine, I'll try myself",
-        giveUpText: '🏳️ I give up — just fill it',
+        giveUpKind: 'hold',
+        giveUpText: '🏳️ HOLD TO GIVE UP',
+        giveUpHoldMs: 1500,
         onConfirm: autoFillKmap,
       });
     }
