@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
   <script src="kmap-core.js"></script>
   <style>
     :root {
@@ -879,6 +880,99 @@
       background: #fff;
     }
 
+    /* === Step 5 three reference cards (truth table, K-map, given expression) === */
+    .verify-references {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 18px;
+      margin: 18px 0 22px;
+      align-items: stretch;
+    }
+    .ref-card {
+      flex: 1 1 220px;
+      min-width: 200px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px 18px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-x: auto;
+    }
+    .ref-card h4 {
+      margin: 0 0 6px;
+    }
+    .ref-card-given {
+      background: var(--surface-soft);
+      border-left: 3px solid var(--accent);
+    }
+    .ref-card .ref-formula {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--text);
+      word-break: break-word;
+    }
+    /* K-map view inside a ref card: no shadow (the card has one). */
+    .ref-card .kmap[data-mode="view"] {
+      box-shadow: none;
+      padding: 8px;
+    }
+    .ref-card .kmap[data-mode="view"] .kmap-cell[data-minterm] {
+      cursor: default;
+    }
+
+    /* === Step 5 success celebration overlay === */
+    .success-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 250;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .success-badge {
+      background: var(--success);
+      color: #fff;
+      padding: 36px 56px;
+      border-radius: 26px;
+      box-shadow:
+        0 24px 60px rgba(21, 128, 61, 0.45),
+        0 8px 24px rgba(21, 128, 61, 0.3),
+        inset 0 -6px 14px rgba(0, 0, 0, 0.12),
+        inset 0 6px 14px rgba(255, 255, 255, 0.2);
+      font-family: var(--font-ui);
+      text-align: center;
+      animation: successPop 1.1s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+    .success-check {
+      font-size: 72px;
+      line-height: 1;
+      margin-bottom: 6px;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.25));
+    }
+    .success-text {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+    }
+    .success-overlay.is-leaving .success-badge {
+      animation: successFadeOut 0.45s ease both;
+    }
+    @keyframes successPop {
+      0%   { opacity: 0; transform: scale(0.3) rotate(-12deg); }
+      55%  { opacity: 1; transform: scale(1.18) rotate(3deg); }
+      75%  { transform: scale(0.95) rotate(-1deg); }
+      100% { opacity: 1; transform: scale(1) rotate(0deg); }
+    }
+    @keyframes successFadeOut {
+      0%   { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(0.85) translateY(-20px); }
+    }
+
     /* === Step 5 verify result panel === */
     .verify-result {
       margin: 14px 0 6px;
@@ -1078,8 +1172,8 @@
       background: var(--surface);
       border-radius: var(--radius-lg);
       padding: 28px 32px;
-      min-width: 380px;
-      max-width: 500px;
+      min-width: 460px;
+      max-width: 540px;
       min-height: 200px;
       box-shadow: 0 20px 60px rgba(31, 27, 22, 0.25);
       font-family: var(--font-ui);
@@ -1099,14 +1193,16 @@
     }
     .modal-actions {
       position: relative;
-      height: 90px;
+      height: 80px;
     }
     .modal-cancel,
     .modal-yes {
       font-family: var(--font-ui);
       font-size: 13px;
       font-weight: 500;
-      padding: 9px 18px;
+      padding: 9px 16px;
+      min-width: 170px;
+      text-align: center;
       border-radius: var(--radius-md);
       border: 1px solid;
       cursor: pointer;
@@ -1125,7 +1221,8 @@
     .modal-yes {
       position: absolute;
       top: 0;
-      left: 200px;
+      right: 0;
+      left: auto;
       background: var(--error);
       border-color: var(--error);
       color: #fff;
@@ -1139,6 +1236,31 @@
       padding-top: 14px;
       border-top: 1px dashed var(--border);
       text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      opacity: 1;
+      transform: translateY(0);
+      transition: opacity 0.45s ease, transform 0.45s ease;
+    }
+    .modal-give-up.is-hidden {
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+    }
+    .modal-give-up.is-revealing {
+      animation: giveUpReveal 0.55s ease both;
+    }
+    @keyframes giveUpReveal {
+      0%   { opacity: 0; transform: translateY(10px); }
+      100% { opacity: 1; transform: translateY(0); }
+    }
+    .modal-give-up-label {
+      font-size: 12px;
+      color: var(--text-3);
+      letter-spacing: 0.02em;
+      font-style: italic;
     }
     .modal-giveup-btn {
       background: transparent;
@@ -2001,7 +2123,7 @@
       }
     }
 
-    // Skip-practice prank for Auto-solve grouping (Step 4).
+    // Skip-practice prank for Auto-solve grouping (Step 4). Runaway Yes.
     function openAutoSolvePrank() {
       const mode = state.solveMode || 'SOP';
       openRunawayConfirm({
@@ -2043,43 +2165,47 @@
     }
 
     function renderOverlays(forceLabels) {
-      const overlay = document.getElementById('kmapOverlay');
-      if (!overlay) return;
-      overlay.innerHTML = '';
+      // Render group overlays into every K-map container that has a .kmap-overlay
+      // (Step 4's interactive K-map and Step 5's view-only reference K-map).
       const all = [...state.solverGroups, ...state.manualGroups];
-      if (all.length === 0) return;
-      const cells = document.querySelectorAll('#step4KmapContainer .kmap-cell[data-minterm]');
-      const cellRects = {};
-      cells.forEach(cell => {
-        const m = +cell.dataset.minterm;
-        const { r, c } = KMapCore.mintermToCell(m, state.n, state.kmapLayout);
-        cellRects[`${r},${c}`] = cell.getBoundingClientRect();
-      });
-      const overlayRect = overlay.parentElement.getBoundingClientRect();
-      all.forEach((g, gi) => {
-        g.rects.forEach((rc, ri) => {
-          const tl = cellRects[`${rc.r0},${rc.c0}`];
-          const br = cellRects[`${rc.r0 + rc.h - 1},${rc.c0 + rc.w - 1}`];
-          if (!tl || !br) return;
-          const div = document.createElement('div');
-          div.className = 'rect';
-          div.dataset.groupIndex = String(gi);
-          div.style.left = (tl.left - overlayRect.left - 3) + 'px';
-          div.style.top = (tl.top - overlayRect.top - 3) + 'px';
-          div.style.width = (br.right - tl.left + 6) + 'px';
-          div.style.height = (br.bottom - tl.top + 6) + 'px';
-          div.style.borderColor = g.color;
-          div.style.backgroundColor = withAlpha(g.color, 0.18);
-          div.title = g.term;
-          // Show label only on the first rect of the group; visible when verified or forced (during export)
-          if (ri === 0 && (state.solutionVerified || forceLabels)) {
-            const label = document.createElement('span');
-            label.className = 'rect-label';
-            label.style.color = g.color;
-            label.textContent = g.term;
-            div.appendChild(label);
-          }
-          overlay.appendChild(div);
+      const containers = document.querySelectorAll('#step4KmapContainer, #step5KmapContainer');
+      containers.forEach(container => {
+        const overlay = container.querySelector('.kmap-overlay');
+        if (!overlay) return;
+        overlay.innerHTML = '';
+        if (all.length === 0) return;
+        const cells = container.querySelectorAll('.kmap-cell[data-minterm]');
+        const cellRects = {};
+        cells.forEach(cell => {
+          const m = +cell.dataset.minterm;
+          const { r, c } = KMapCore.mintermToCell(m, state.n, state.kmapLayout);
+          cellRects[`${r},${c}`] = cell.getBoundingClientRect();
+        });
+        const overlayRect = overlay.parentElement.getBoundingClientRect();
+        all.forEach((g, gi) => {
+          g.rects.forEach((rc, ri) => {
+            const tl = cellRects[`${rc.r0},${rc.c0}`];
+            const br = cellRects[`${rc.r0 + rc.h - 1},${rc.c0 + rc.w - 1}`];
+            if (!tl || !br) return;
+            const div = document.createElement('div');
+            div.className = 'rect';
+            div.dataset.groupIndex = String(gi);
+            div.style.left = (tl.left - overlayRect.left - 3) + 'px';
+            div.style.top = (tl.top - overlayRect.top - 3) + 'px';
+            div.style.width = (br.right - tl.left + 6) + 'px';
+            div.style.height = (br.bottom - tl.top + 6) + 'px';
+            div.style.borderColor = g.color;
+            div.style.backgroundColor = withAlpha(g.color, 0.18);
+            div.title = g.term;
+            if (ri === 0 && (state.solutionVerified || forceLabels)) {
+              const label = document.createElement('span');
+              label.className = 'rect-label';
+              label.style.color = g.color;
+              label.textContent = g.term;
+              div.appendChild(label);
+            }
+            overlay.appendChild(div);
+          });
         });
       });
     }
@@ -2246,58 +2372,74 @@
       const body = document.getElementById('step5Body');
       body.innerHTML = '';
 
-      // Helper bubble: banner + compact truth table.
-      const refSection = document.createElement('div');
-      refSection.className = 'step-helper-corner helper-bubble';
-      if (state.answerKey) refSection.classList.add('has-banner');
-      const tableLabel = document.createElement('h4');
-      tableLabel.textContent = 'Truth table';
-      refSection.appendChild(tableLabel);
-      refSection.appendChild(buildTruthTable({ readOnly: true, compact: true }));
-      body.appendChild(refSection);
-      renderExprBanner(refSection);
-
-      // Main content (right-padded for the helper bubble).
-      const content = document.createElement('div');
-      content.className = 'step-with-helper';
-      body.appendChild(content);
-
       // Step note.
       const note = document.createElement('p');
       note.className = 'step-note';
-      note.textContent = "Read the simplified Boolean expression off your K-map grouping and type it below. The app will compare it logically to F.";
-      content.appendChild(note);
+      note.textContent = "Read the simplified Boolean expression off your grouped K-map. Type it below — we'll compare it logically to F.";
+      body.appendChild(note);
+
+      // Three reference cards: truth table, K-map (with groups, view-only), given expression.
+      const refRow = document.createElement('div');
+      refRow.className = 'verify-references';
+      body.appendChild(refRow);
+
+      // Truth table card.
+      const ttCard = document.createElement('div');
+      ttCard.className = 'ref-card';
+      ttCard.innerHTML = '<h4>Truth table</h4>';
+      ttCard.appendChild(buildTruthTable({ readOnly: true, compact: true }));
+      refRow.appendChild(ttCard);
+
+      // K-map card (read-only view with group overlays).
+      const kmCard = document.createElement('div');
+      kmCard.className = 'ref-card';
+      kmCard.innerHTML = '<h4>K-map</h4>';
+      const kmContainer = document.createElement('div');
+      kmContainer.id = 'step5KmapContainer';
+      kmContainer.appendChild(buildKmapElement('view'));
+      kmCard.appendChild(kmContainer);
+      refRow.appendChild(kmCard);
+
+      // Given expression card (only when an answer key exists).
+      if (state.answerKey) {
+        const exCard = document.createElement('div');
+        exCard.className = 'ref-card ref-card-given';
+        exCard.innerHTML = `
+          <h4>Given expression</h4>
+          <div class="ref-formula">F(${state.varNames.join(', ')}) = ${state.answerKey.expression}</div>
+        `;
+        refRow.appendChild(exCard);
+      }
 
       // Verify field row.
       const verifyRow = document.createElement('div');
       verifyRow.className = 'field-row';
       verifyRow.innerHTML = `
-        <label class="field-label" for="verifyInput">Simplified expression</label>
+        <label class="field-label" for="verifyInput">Your simplified expression</label>
         <input id="verifyInput" type="text" placeholder="e.g. A + BC'D'" autocomplete="off">
         <button id="verifyBtn" type="button">Check</button>
       `;
-      content.appendChild(verifyRow);
+      body.appendChild(verifyRow);
 
       // Result feedback.
       const result = document.createElement('div');
       result.id = 'verifyResult';
       result.className = 'verify-result';
-      content.appendChild(result);
+      body.appendChild(result);
 
-      // Fallback row: Reveal answer (with prank).
+      // Fallback: Reveal answer (with runaway prank).
       const fallback = document.createElement('div');
       fallback.className = 'step-tools-fallback';
       fallback.innerHTML = `
         <button id="revealAnswerBtn" type="button" class="secondary-btn">🔍 Reveal answer</button>
-        <span class="row-hint">Stuck? Open the modal and try to catch the runaway button.</span>
       `;
-      content.appendChild(fallback);
+      body.appendChild(fallback);
 
       // Continue.
       const advance = document.createElement('div');
       advance.className = 'step-advance';
       advance.innerHTML = `<button id="continueExportBtn" type="button" disabled>Continue →</button>`;
-      content.appendChild(advance);
+      body.appendChild(advance);
 
       // Wire handlers.
       document.getElementById('verifyBtn').addEventListener('click', verifyUserExpression);
@@ -2310,6 +2452,9 @@
       });
       document.getElementById('revealAnswerBtn').addEventListener('click', openRevealPrank);
 
+      // Render group overlays into the new view K-map.
+      renderOverlays();
+
       // Restore prior visual state if already verified.
       if (state.solutionVerified) {
         document.getElementById('continueExportBtn').disabled = false;
@@ -2321,11 +2466,10 @@
       }
     }
 
-    // Generic runaway-Yes confirmation modal.
-    // opts: { title, message, yesText, cancelText, giveUpText, onConfirm }
-    //   The Yes button always dodges the cursor — the only way to catch it is to click the
-    //   give-up button, which freezes Yes in place. Cancel and give-up both close the modal
-    //   without confirming unless the user then clicks Yes.
+    // Generic confirmation modal — optional runaway-Yes prank.
+    // opts: { title, message, yesText, cancelText, giveUpText, onConfirm, dodge }
+    //   dodge: when true (default), Yes button runs from the cursor and only unlocks
+    //   when the user clicks the give-up button. When false, Yes works normally.
     function openRunawayConfirm(opts) {
       const {
         title,
@@ -2334,6 +2478,8 @@
         cancelText = 'Cancel',
         giveUpText,
         onConfirm,
+        dodge = true,
+        giveUpDelayMs = 2800, // hide give-up button until N ms after the first dodge
       } = opts;
 
       const overlay = document.createElement('div');
@@ -2342,6 +2488,7 @@
       box.className = 'modal-box';
       const giveUpHTML = giveUpText
         ? `<div class="modal-give-up">
+             <span class="modal-give-up-label">Ready to give up? 🏳️</span>
              <button class="modal-giveup-btn" type="button">${giveUpText}</button>
            </div>`
         : '';
@@ -2360,10 +2507,18 @@
       const yes = box.querySelector('.modal-yes');
       const cancel = box.querySelector('.modal-cancel');
       const giveUp = box.querySelector('.modal-giveup-btn');
+      const giveUpWrap = box.querySelector('.modal-give-up');
+
+      // When dodge is on, hide the give-up section initially and only reveal it
+      // a few seconds after the user starts chasing the Yes button.
+      if (dodge && giveUpWrap) giveUpWrap.classList.add('is-hidden');
 
       let givenUp = false;
+      let firstDodge = false;
+      let revealTimer = null;
 
-      function dodge(mouseX, mouseY) {
+      function dodgeFn(mouseX, mouseY) {
+        if (!dodge) return;
         if (givenUp) return;
         const r = yes.getBoundingClientRect();
         const cx = r.left + r.width / 2;
@@ -2372,6 +2527,17 @@
         const dy = mouseY - cy;
         const dist = Math.hypot(dx, dy);
         if (dist > 100) return;
+
+        if (!firstDodge) {
+          firstDodge = true;
+          if (giveUpWrap && giveUpText) {
+            revealTimer = setTimeout(() => {
+              giveUpWrap.classList.remove('is-hidden');
+              giveUpWrap.classList.add('is-revealing');
+              revealTimer = null;
+            }, giveUpDelayMs);
+          }
+        }
 
         const boxRect = box.getBoundingClientRect();
         const actionsRect = box.querySelector('.modal-actions').getBoundingClientRect();
@@ -2398,27 +2564,37 @@
         yes.style.top = ny + 'px';
       }
 
-      function onMove(e) { dodge(e.clientX, e.clientY); }
-      function onTouch(e) { if (e.touches && e.touches[0]) dodge(e.touches[0].clientX, e.touches[0].clientY); }
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('touchstart', onTouch, { passive: true });
-      window.addEventListener('touchmove', onTouch, { passive: true });
-      yes.addEventListener('focus', () => dodge(window.innerWidth / 2, window.innerHeight / 2));
+      function onMove(e) { dodgeFn(e.clientX, e.clientY); }
+      function onTouch(e) { if (e.touches && e.touches[0]) dodgeFn(e.touches[0].clientX, e.touches[0].clientY); }
+      if (dodge) {
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('touchstart', onTouch, { passive: true });
+        window.addEventListener('touchmove', onTouch, { passive: true });
+        yes.addEventListener('focus', () => dodgeFn(window.innerWidth / 2, window.innerHeight / 2));
+      }
 
       function close() {
         window.removeEventListener('mousemove', onMove);
         window.removeEventListener('touchstart', onTouch);
         window.removeEventListener('touchmove', onTouch);
+        if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; }
         overlay.remove();
       }
 
       cancel.addEventListener('click', close);
       if (giveUp) {
         giveUp.addEventListener('click', () => {
-          givenUp = true;
-          yes.classList.add('given-up');
-          giveUp.disabled = true;
-          giveUp.textContent = '✓ Unlocked — click the red button';
+          if (dodge) {
+            // Runaway mode: clicking give-up freezes Yes so the user can finally click it.
+            givenUp = true;
+            yes.classList.add('given-up');
+            giveUp.disabled = true;
+            giveUp.textContent = '✓ Unlocked — click the red button';
+          } else {
+            // No-runaway mode: give-up is just an alternate way to confirm.
+            close();
+            if (onConfirm) onConfirm();
+          }
         });
       }
       yes.addEventListener('click', () => {
@@ -2465,7 +2641,7 @@
       });
     }
 
-    // Skip-practice prank for "Fill F from expression" (Step 2). Same three-button shape.
+    // Skip-practice prank for "Fill F from expression" (Step 2). Runaway Yes.
     function openAutoFillPrank() {
       openRunawayConfirm({
         title: 'Skip the practice?',
@@ -2521,7 +2697,7 @@
       }
       if (firstMismatch !== null) {
         out.classList.add('error');
-        out.textContent = `✗ Not equivalent. Your expression evaluates differently at minterm m=${firstMismatch} (you said ${KMapCore.evaluateExpr(r.ast, firstMismatch, state.n)}, but F(m=${firstMismatch}) = ${state.values[firstMismatch]}).\nTry again.`;
+        out.textContent = '✗ Not equivalent — try again.';
         return;
       }
       // Correct.
@@ -2530,15 +2706,52 @@
       out.classList.add('success');
       const groupTerms = [...state.solverGroups, ...state.manualGroups]
         .map((g, i) => `  • Group ${i + 1} (${g.color}): ${g.term}`).join('\n');
-      const haveAuto = state.solverGroups.length > 0;
-      const autoExpr = haveAuto ? state.solverGroups.map(g => g.term).join(' + ') : null;
       let bodyText = `✓ Correct! F = ${src}`;
-      if (autoExpr && autoExpr !== src) bodyText += `\n   (Solver's minimal form: ${autoExpr})`;
       if (groupTerms) bodyText += `\n\nGroup terms:\n${groupTerms}`;
       out.textContent = bodyText;
       document.getElementById('continueExportBtn').disabled = false;
       renderOverlays();
       renderManualGroupList();
+      showSuccessCelebration();
+    }
+
+    function showSuccessCelebration() {
+      // Confetti from both bottom corners.
+      if (typeof window.confetti === 'function') {
+        const colors = ['#15803D', '#0F766E', '#84CC16', '#FBBF24', '#3B82F6', '#EF4444', '#9333EA'];
+        window.confetti({
+          particleCount: 90,
+          spread: 70,
+          angle: 60,
+          origin: { x: 0, y: 1 },
+          colors,
+          startVelocity: 55,
+          scalar: 1.1,
+        });
+        window.confetti({
+          particleCount: 90,
+          spread: 70,
+          angle: 120,
+          origin: { x: 1, y: 1 },
+          colors,
+          startVelocity: 55,
+          scalar: 1.1,
+        });
+      }
+      // Success badge that pops in.
+      const overlay = document.createElement('div');
+      overlay.className = 'success-overlay';
+      overlay.innerHTML = `
+        <div class="success-badge">
+          <div class="success-check">✓</div>
+          <div class="success-text">CORRECT!</div>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      setTimeout(() => {
+        overlay.classList.add('is-leaving');
+        setTimeout(() => overlay.remove(), 450);
+      }, 1500);
     }
 
     async function snapshotTruthTable() {
@@ -2735,19 +2948,22 @@
           cell.innerHTML = `<span class="mint">${m}</span>${display}`;
           if (v === 'X') cell.classList.add('x');
           if (mode === 'edit') cell.addEventListener('click', () => cycleEditCell(m));
-          else cell.addEventListener('click', () => toggleGroupCell(m));
+          else if (mode === 'group') cell.addEventListener('click', () => toggleGroupCell(m));
+          // 'view' mode: no click handlers (read-only display).
           row.appendChild(cell);
         }
         grid.appendChild(row);
       }
       wrap.appendChild(grid);
 
-      // Overlay only on grouping K-map
-      if (mode === 'group') {
-        const overlay = document.createElement('div'); overlay.className = 'kmap-overlay'; overlay.id = 'kmapOverlay';
+      // Overlay layer for grouping (interactive) and view (read-only display).
+      if (mode === 'group' || mode === 'view') {
+        const overlay = document.createElement('div');
+        overlay.className = 'kmap-overlay';
+        if (mode === 'group') overlay.id = 'kmapOverlay'; // legacy ID for backwards compat
         wrap.appendChild(overlay);
-        wireDragSelect(wrap);
       }
+      if (mode === 'group') wireDragSelect(wrap);
       return wrap;
     }
 
