@@ -473,7 +473,10 @@
       position: relative;
       margin-top: 12px;
       background: #fff;
-      padding: 16px;
+      /* Generous horizontal padding so mid-edge labels (which overhang the
+         rect outline by ~half their width) stay inside the captured area
+         when html2canvas snapshots .kmap for PNG/PDF export. */
+      padding: 24px 36px;
       border-radius: var(--radius-md);
       border: 1px solid var(--border);
       box-shadow: var(--shadow-sm);
@@ -539,9 +542,9 @@
     .kmap-overlay .rect-label {
       position: absolute;
       background: #fff;
-      padding: 1px 8px;
+      padding: 1px 6px;
       font-family: var(--font-mono);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
       border-radius: 4px;
       letter-spacing: 0.02em;
