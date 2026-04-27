@@ -612,18 +612,25 @@
     .eval-chunk:hover { background: var(--accent-soft); }
     .eval-chunk.is-selected,
     .eval-not-wrap.is-selected,
-    .eval-and-wrap.is-selected,
-    .eval-or-wrap.is-selected {
+    .eval-operand.is-selected {
       background: var(--accent);
       color: #fff;
       border-radius: 4px;
       padding: 1px 3px;
     }
     .eval-not-wrap.is-selected .eval-chunk,
-    .eval-and-wrap.is-selected .eval-chunk,
-    .eval-or-wrap.is-selected .eval-chunk {
+    .eval-operand.is-selected .eval-chunk,
+    .eval-operand.is-selected .eval-const {
       background: transparent;
       color: inherit;
+    }
+    /* Visual continuity between the two operands and the operator that joins
+       them when a pair is selected — square off the inner edges so they read
+       as a single highlighted block. */
+    .eval-operand.is-selected,
+    .eval-chunk.eval-op.is-selected {
+      padding-left: 4px;
+      padding-right: 4px;
     }
     /* Constants are visually distinct (color/weight) but not clickable —
        there's no simpler value to replace them with. */
@@ -2327,13 +2334,28 @@
       throw new Error('eval: bad path on leaf');
     }
 
-    // True when the node is a single reduction step away from a constant.
-    function evalIsReady(node) {
-      if (node.op === 'NOT') return node.arg.op === 'CONST';
-      if (node.op === 'AND' || node.op === 'OR') {
-        return node.args[0].op === 'CONST' && node.args[1].op === 'CONST';
+    // Flatten a left-associated chain of the same op into a flat operand list.
+    // OR(OR(1,1), 1) with op='OR' -> [{node:1, path:[0,0]}, {node:1, path:[0,1]}, {node:1, path:[1]}]
+    // Each operand carries its full AST path (relative to the AST root).
+    function evalFlattenChain(node, op, basePath) {
+      if (node.op === op) {
+        return [
+          ...evalFlattenChain(node.args[0], op, basePath.concat(0)),
+          ...evalFlattenChain(node.args[1], op, basePath.concat(1)),
+        ];
       }
-      return false;
+      return [{ node, path: basePath }];
+    }
+
+    // Rebuild a left-associated chain from a list of operand nodes.
+    // [a, b, c] with op='OR' -> OR(OR(a, b), c). Single operand returns itself.
+    function evalBuildLeftAssoc(operands, op) {
+      if (operands.length === 0) throw new Error('empty operand list');
+      let acc = operands[0];
+      for (let i = 1; i < operands.length; i++) {
+        acc = { op, args: [acc, operands[i]] };
+      }
+      return acc;
     }
 
     // ----- Rendering -----
@@ -2357,14 +2379,17 @@
     // Render an AST node into a DocumentFragment.
     // parentOp is the op of the parent (or null for root) — used to decide
     // whether this node's display needs surrounding parens.
-    function evalRenderNode(node, path, parentOp, selectedPath) {
+    // selection is the current state.evaluator.selection (or null).
+    //
+    // Chains of the same op (OR or AND) are flattened during rendering, so
+    // 1+1+1 is shown as three operands joined by two visual + operators —
+    // each + is a "pair" operator that binds only to its two adjacent
+    // operands. Selecting a + replaces just that pair, leaving the rest of
+    // the chain untouched.
+    function evalRenderNode(node, path, parentOp, selection) {
       const frag = document.createDocumentFragment();
-      const isSelected = evalPathsEqual(path, selectedPath);
 
       if (node.op === 'CONST') {
-        // Plain constants get parens when nested under an op (visual grouping
-        // for substituted bits like (1)' or 0·(0)). Root constants are bare.
-        // Constants are NOT clickable — no simpler value to replace them with.
         const wrap = parentOp != null;
         if (wrap) frag.appendChild(document.createTextNode('('));
         const span = document.createElement('span');
@@ -2375,30 +2400,25 @@
         return frag;
       }
       if (node.op === 'VAR') {
-        // Should not normally appear after substitution, but render for safety.
         const span = document.createElement('span');
-        span.className = 'eval-chunk eval-var';
-        span.dataset.evalPath = evalPathToString(path);
+        span.className = 'eval-var';
         span.textContent = state.varNames[node.index] || '?';
         frag.appendChild(span);
         return frag;
       }
       if (node.op === 'NOT') {
-        // Render the arg, parenthesized, then a small ' postfix.
-        const argFrag = evalRenderNode(node.arg, path.concat(0), 'NOT', selectedPath);
-        // Wrap the whole NOT (arg + ') in a wrapper so selecting just the NOT
-        // is possible: clicking the ' selects path; clicking inside the arg
-        // selects the inner path because `closest` finds the nearest match.
+        const isSelected = selection && selection.kind === 'node' && evalPathsEqual(path, selection.path);
         const wrapper = document.createElement('span');
         wrapper.className = 'eval-not-wrap';
         if (isSelected) wrapper.classList.add('is-selected');
-        // Open paren
-        wrapper.appendChild(document.createTextNode('('));
-        wrapper.appendChild(argFrag);
-        wrapper.appendChild(document.createTextNode(')'));
+        // No outer parens here — the arg renderer adds its own when needed
+        // (parentOp='NOT' triggers self-wrap on CONST and chains). Avoids
+        // double-paren stacking like ((1))'.
+        wrapper.appendChild(evalRenderNode(node.arg, path.concat(0), 'NOT', selection));
         const op = document.createElement('span');
         op.className = 'eval-chunk eval-op eval-op-not';
         if (isSelected) op.classList.add('is-selected');
+        op.dataset.evalKind = 'node';
         op.dataset.evalPath = evalPathToString(path);
         op.textContent = "'";
         wrapper.appendChild(op);
@@ -2407,20 +2427,43 @@
       }
       if (node.op === 'AND' || node.op === 'OR') {
         const isOr = node.op === 'OR';
-        // Wrap if nested under a higher-precedence op or a NOT (parens for clarity).
+        const operands = evalFlattenChain(node, node.op, path);
+        // Wrap in parens if precedence demands it: an OR inside an AND, or
+        // any chain inside a NOT, gets surrounding parens for clarity.
         const wrap = parentOp === 'NOT' || (isOr && parentOp === 'AND');
         const wrapper = document.createElement('span');
-        wrapper.className = isOr ? 'eval-or-wrap' : 'eval-and-wrap';
-        if (isSelected) wrapper.classList.add('is-selected');
+        wrapper.className = isOr ? 'eval-or-chain' : 'eval-and-chain';
         if (wrap) wrapper.appendChild(document.createTextNode('('));
-        wrapper.appendChild(evalRenderNode(node.args[0], path.concat(0), node.op, selectedPath));
-        const op = document.createElement('span');
-        op.className = 'eval-chunk eval-op ' + (isOr ? 'eval-op-or' : 'eval-op-and');
-        if (isSelected) op.classList.add('is-selected');
-        op.dataset.evalPath = evalPathToString(path);
-        op.textContent = isOr ? ' + ' : '·';
-        wrapper.appendChild(op);
-        wrapper.appendChild(evalRenderNode(node.args[1], path.concat(1), node.op, selectedPath));
+
+        // For each operand, decide if it's part of the currently-selected pair.
+        const isPairSel = selection && selection.kind === 'pair'
+          && evalPathsEqual(selection.chainPath, path)
+          && selection.chainOp === node.op;
+
+        operands.forEach((operand, i) => {
+          const inLeftOfSel  = isPairSel && i === selection.pairIndex;
+          const inRightOfSel = isPairSel && i === selection.pairIndex + 1;
+
+          const operandWrap = document.createElement('span');
+          operandWrap.className = 'eval-operand';
+          if (inLeftOfSel || inRightOfSel) operandWrap.classList.add('is-selected');
+          operandWrap.appendChild(evalRenderNode(operand.node, operand.path, node.op, selection));
+          wrapper.appendChild(operandWrap);
+
+          // Emit the pair operator AFTER each operand except the last.
+          if (i < operands.length - 1) {
+            const op = document.createElement('span');
+            op.className = 'eval-chunk eval-op ' + (isOr ? 'eval-op-or' : 'eval-op-and');
+            op.dataset.evalKind = 'pair';
+            op.dataset.evalChainPath = evalPathToString(path);
+            op.dataset.evalChainOp = node.op;
+            op.dataset.evalPairIndex = String(i);
+            if (isPairSel && selection.pairIndex === i) op.classList.add('is-selected');
+            op.textContent = isOr ? ' + ' : '·';
+            wrapper.appendChild(op);
+          }
+        });
+
         if (wrap) wrapper.appendChild(document.createTextNode(')'));
         frag.appendChild(wrapper);
         return frag;
@@ -2454,7 +2497,7 @@
       state.evaluator = {
         rowMinterm,
         ast: evalSubstituteVars(state.answerKey.ast, rowMinterm, state.n),
-        selectedPath: null,
+        selection: null,
         history: [],
       };
       renderEvaluatorPanel();
@@ -2467,33 +2510,92 @@
       evalUpdateActiveRowClass();
     }
 
-    function evalSelectPath(path) {
+    function evalSelectionsEqual(a, b) {
+      if (!a && !b) return true;
+      if (!a || !b) return false;
+      if (a.kind !== b.kind) return false;
+      if (a.kind === 'node') return evalPathsEqual(a.path, b.path);
+      // pair
+      return a.chainOp === b.chainOp
+          && a.pairIndex === b.pairIndex
+          && evalPathsEqual(a.chainPath, b.chainPath);
+    }
+
+    function evalSetSelection(selection) {
       if (!state.evaluator) return;
       // Toggle: clicking the same chunk again deselects.
-      if (evalPathsEqual(path, state.evaluator.selectedPath)) {
-        state.evaluator.selectedPath = null;
+      if (evalSelectionsEqual(state.evaluator.selection, selection)) {
+        state.evaluator.selection = null;
       } else {
-        state.evaluator.selectedPath = path;
+        state.evaluator.selection = selection;
       }
       renderEvaluatorPanel();
-      // After re-render, focus the input if a path is selected.
-      if (state.evaluator.selectedPath) {
+      if (state.evaluator.selection) {
         const inp = document.getElementById('evalReplaceInput');
         if (inp) inp.focus();
       }
+    }
+
+    function evalSelectNode(path) {
+      evalSetSelection({ kind: 'node', path });
+    }
+
+    function evalSelectPair(chainPath, chainOp, pairIndex) {
+      evalSetSelection({ kind: 'pair', chainPath, chainOp, pairIndex });
     }
 
     function evalUndo() {
       if (!state.evaluator || state.evaluator.history.length === 0) return;
       const prev = state.evaluator.history.pop();
       state.evaluator.ast = prev.ast;
-      state.evaluator.selectedPath = prev.selectedPath;
+      state.evaluator.selection = prev.selection;
       renderEvaluatorPanel();
+    }
+
+    // Compute the value of the currently-selected sub-expression, plus a way
+    // to apply a replacement to the AST. Returns null if no valid selection.
+    // For 'node': trivial — that subtree is the selection.
+    // For 'pair': synthesize a binary node from the two chain operands at
+    // pairIndex / pairIndex+1 — that's what the user is selecting visually.
+    function evalDescribeSelection() {
+      const ev = state.evaluator;
+      if (!ev || !ev.selection) return null;
+      const sel = ev.selection;
+      if (sel.kind === 'node') {
+        const node = evalGetNode(ev.ast, sel.path);
+        return {
+          value: evalAst(node),
+          replace(userAst) {
+            return evalSetNode(ev.ast, sel.path, userAst);
+          },
+        };
+      }
+      // sel.kind === 'pair'
+      const chainNode = evalGetNode(ev.ast, sel.chainPath);
+      const operands = evalFlattenChain(chainNode, sel.chainOp, sel.chainPath);
+      const left = operands[sel.pairIndex];
+      const right = operands[sel.pairIndex + 1];
+      if (!left || !right) return null;
+      const synthetic = { op: sel.chainOp, args: [left.node, right.node] };
+      return {
+        value: evalAst(synthetic),
+        replace(userAst) {
+          // Splice the pair: keep operands before, replace with userAst, keep operands after.
+          const newOperandNodes = operands
+            .slice(0, sel.pairIndex)
+            .map(o => o.node)
+            .concat([userAst])
+            .concat(operands.slice(sel.pairIndex + 2).map(o => o.node));
+          const newChain = evalBuildLeftAssoc(newOperandNodes, sel.chainOp);
+          return evalSetNode(ev.ast, sel.chainPath, newChain);
+        },
+      };
     }
 
     function evalTryReplace() {
       const inp = document.getElementById('evalReplaceInput');
-      if (!inp || !state.evaluator || !state.evaluator.selectedPath) return;
+      const desc = evalDescribeSelection();
+      if (!inp || !desc) return;
       const text = inp.value.trim();
       if (!text) return;
       const r = KMapCore.parseExpression(text, state.varNames);
@@ -2501,22 +2603,18 @@
         evalShakeInput('parse error');
         return;
       }
-      // Substitute vars (so user can type literals matching this row) and evaluate.
       const userAst = evalSubstituteVars(r.ast, state.evaluator.rowMinterm, state.n);
       const userVal = evalAst(userAst);
-      const selectedNode = evalGetNode(state.evaluator.ast, state.evaluator.selectedPath);
-      const expectedVal = evalAst(selectedNode);
-      if (userVal === null || expectedVal === null || userVal !== expectedVal) {
+      if (userVal === null || desc.value === null || userVal !== desc.value) {
         evalShakeInput('not equivalent');
         return;
       }
-      // Accept: push history, replace node, clear selection.
       state.evaluator.history.push({
         ast: state.evaluator.ast,
-        selectedPath: state.evaluator.selectedPath,
+        selection: state.evaluator.selection,
       });
-      state.evaluator.ast = evalSetNode(state.evaluator.ast, state.evaluator.selectedPath, userAst);
-      state.evaluator.selectedPath = null;
+      state.evaluator.ast = desc.replace(userAst);
+      state.evaluator.selection = null;
       renderEvaluatorPanel();
     }
 
@@ -2611,7 +2709,7 @@
       const exprLine = document.createElement('div');
       exprLine.className = 'eval-expr';
       exprLine.appendChild(document.createTextNode('F = '));
-      exprLine.appendChild(evalRenderNode(ev.ast, [], null, ev.selectedPath));
+      exprLine.appendChild(evalRenderNode(ev.ast, [], null, ev.selection));
       panel.appendChild(exprLine);
 
       if (isFinal) {
@@ -2624,9 +2722,8 @@
         `;
         panel.appendChild(done);
         document.getElementById('evalApplyBtn').addEventListener('click', evalApplyToRow);
-      } else if (ev.selectedPath) {
+      } else if (ev.selection) {
         // Show input row for the selected sub-expression.
-        const selectedNode = evalGetNode(ev.ast, ev.selectedPath);
         const hint = document.createElement('div');
         hint.className = 'eval-input-row';
         hint.innerHTML = `
@@ -2641,7 +2738,11 @@
         if (inp) {
           inp.addEventListener('keydown', e => {
             if (e.key === 'Enter') { e.preventDefault(); evalTryReplace(); }
-            else if (e.key === 'Escape') { e.preventDefault(); evalSelectPath(ev.selectedPath); }
+            else if (e.key === 'Escape') {
+              e.preventDefault();
+              if (state.evaluator) state.evaluator.selection = null;
+              renderEvaluatorPanel();
+            }
             else {
               const tip = document.getElementById('evalReplaceErr');
               if (tip) tip.textContent = '';
@@ -2658,12 +2759,21 @@
         panel.appendChild(prompt);
       }
 
-      // Wire chunk clicks (delegated on the expression line).
+      // Wire chunk clicks (delegated on the expression line). The clicked
+      // element's data-eval-kind tells us whether it's a single-node
+      // selection (NOT) or a pair selection (a chain operator).
       exprLine.addEventListener('click', e => {
-        const chunk = e.target.closest('[data-eval-path]');
+        const chunk = e.target.closest('[data-eval-kind]');
         if (!chunk) return;
-        const path = evalPathFromString(chunk.dataset.evalPath);
-        evalSelectPath(path);
+        if (chunk.dataset.evalKind === 'node') {
+          evalSelectNode(evalPathFromString(chunk.dataset.evalPath));
+        } else if (chunk.dataset.evalKind === 'pair') {
+          evalSelectPair(
+            evalPathFromString(chunk.dataset.evalChainPath),
+            chunk.dataset.evalChainOp,
+            parseInt(chunk.dataset.evalPairIndex, 10),
+          );
+        }
       });
 
       // Header buttons.
@@ -2711,7 +2821,13 @@
       groupingVerified: false,
       startingPoint: 'expression',  // Step 2 segmented control: 'expression' | 'truthtable'
       // Step 2 step-by-step evaluator session (null when not active).
-      // {rowMinterm, ast, selectedPath: [i,...]|null, history: [{ast, selectedPath}, ...]}
+      // {
+      //   rowMinterm: number,
+      //   ast: <current AST after substitutions/replacements>,
+      //   selection: null | {kind:'node', path:number[]}
+      //                   | {kind:'pair', chainPath:number[], chainOp:'AND'|'OR', pairIndex:number},
+      //   history: [{ast, selection}, ...]   // for ↩ undo
+      // }
       evaluator: null,
       pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
