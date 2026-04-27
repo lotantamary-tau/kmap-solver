@@ -612,7 +612,9 @@
     .eval-chunk:hover { background: var(--accent-soft); }
     .eval-chunk.is-selected,
     .eval-not-wrap.is-selected,
-    .eval-operand.is-selected {
+    .eval-operand.is-selected,
+    .eval-or-chain.is-selected,
+    .eval-and-chain.is-selected {
       background: var(--accent);
       color: #fff;
       border-radius: 4px;
@@ -620,7 +622,13 @@
     }
     .eval-not-wrap.is-selected .eval-chunk,
     .eval-operand.is-selected .eval-chunk,
-    .eval-operand.is-selected .eval-const {
+    .eval-operand.is-selected .eval-const,
+    .eval-or-chain.is-selected .eval-chunk,
+    .eval-or-chain.is-selected .eval-const,
+    .eval-or-chain.is-selected .eval-paren,
+    .eval-and-chain.is-selected .eval-chunk,
+    .eval-and-chain.is-selected .eval-const,
+    .eval-and-chain.is-selected .eval-paren {
       background: transparent;
       color: inherit;
     }
@@ -632,6 +640,15 @@
       padding-left: 4px;
       padding-right: 4px;
     }
+    /* Parens that wrap a chain are clickable — clicking either one selects
+       the whole chain in a single gesture. */
+    .eval-paren {
+      cursor: pointer;
+      padding: 0 1px;
+      border-radius: 3px;
+      transition: background 0.1s, color 0.1s;
+    }
+    .eval-paren:hover { background: var(--accent-soft); }
     /* Constants are visually distinct (color/weight) but not clickable —
        there's no simpler value to replace them with. */
     .eval-const { color: #B45309; cursor: default; }
@@ -2433,7 +2450,22 @@
         const wrap = parentOp === 'NOT' || (isOr && parentOp === 'AND');
         const wrapper = document.createElement('span');
         wrapper.className = isOr ? 'eval-or-chain' : 'eval-and-chain';
-        if (wrap) wrapper.appendChild(document.createTextNode('('));
+
+        // The chain itself is selectable as a single node — clicking either
+        // of its surrounding parens (when wrap is on) picks the whole chain.
+        // Useful for collapsing a parenthesized sub-expression in one click,
+        // e.g. (1+1+1)·0 — click '(' or ')' to grab all of (1+1+1).
+        const isChainNodeSel = selection && selection.kind === 'node' && evalPathsEqual(selection.path, path);
+        if (isChainNodeSel) wrapper.classList.add('is-selected');
+
+        if (wrap) {
+          const lp = document.createElement('span');
+          lp.className = 'eval-paren';
+          lp.dataset.evalKind = 'node';
+          lp.dataset.evalPath = evalPathToString(path);
+          lp.textContent = '(';
+          wrapper.appendChild(lp);
+        }
 
         // For each operand, decide if it's part of the currently-selected pair.
         const isPairSel = selection && selection.kind === 'pair'
@@ -2464,7 +2496,14 @@
           }
         });
 
-        if (wrap) wrapper.appendChild(document.createTextNode(')'));
+        if (wrap) {
+          const rp = document.createElement('span');
+          rp.className = 'eval-paren';
+          rp.dataset.evalKind = 'node';
+          rp.dataset.evalPath = evalPathToString(path);
+          rp.textContent = ')';
+          wrapper.appendChild(rp);
+        }
         frag.appendChild(wrapper);
         return frag;
       }
@@ -2755,7 +2794,7 @@
         // Nothing selected — prompt user to click a chunk.
         const prompt = document.createElement('div');
         prompt.className = 'eval-prompt';
-        prompt.textContent = "Click an operator above (a ' , · , or +) to replace its sub-expression with a simpler value.";
+        prompt.textContent = "Click an operator above (a ' , · , or +) to replace its sub-expression. Click a paren ( ) to grab the whole sub-expression inside it.";
         panel.appendChild(prompt);
       }
 
