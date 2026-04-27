@@ -1009,6 +1009,7 @@
         inset 0 -6px 14px rgba(0, 0, 0, 0.12),
         inset 0 6px 14px rgba(255, 255, 255, 0.2);
     }
+    .cheat-badge .success-text { font-size: 22px; line-height: 1.15; }
     @keyframes successPop {
       0%   { opacity: 0; transform: scale(0.3) rotate(-12deg); }
       55%  { opacity: 1; transform: scale(1.18) rotate(3deg); }
@@ -1316,6 +1317,38 @@
       color: #fff;
     }
     .modal-yes:hover { background: #991B1B; border-color: #991B1B; }
+    /* Escalating-confirm variant: static side-by-side layout (no runaway). */
+    .modal-actions-stacked {
+      height: auto;
+      display: flex;
+      gap: 12px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .modal-yes.modal-yes-static {
+      position: static;
+      top: auto;
+      right: auto;
+      left: auto;
+    }
+    .modal-stage-counter {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 6px;
+    }
+    .modal-box.modal-box-escalating { min-height: 0; }
+    .modal-box.shake { animation: modalShake 0.32s ease both; }
+    @keyframes modalShake {
+      0%, 100% { transform: translateX(0); }
+      20%      { transform: translateX(-6px); }
+      40%      { transform: translateX(5px); }
+      60%      { transform: translateX(-3px); }
+      80%      { transform: translateX(2px); }
+    }
     .modal-yes.given-up {
       animation: modalYesGiveUp 0.5s ease;
     }
@@ -2386,7 +2419,10 @@
           const { r, c } = KMapCore.mintermToCell(m, state.n, state.kmapLayout);
           cellRects[`${r},${c}`] = cell.getBoundingClientRect();
         });
-        const overlayRect = overlay.parentElement.getBoundingClientRect();
+        // Anchor to the overlay's own viewport rect so child rects (also
+        // position:absolute inside the overlay) line up with cells regardless
+        // of the .kmap parent's padding or border thickness.
+        const overlayRect = overlay.getBoundingClientRect();
         all.forEach((g, gi) => {
           g.rects.forEach((rc, ri) => {
             const tl = cellRects[`${rc.r0},${rc.c0}`];
@@ -3008,26 +3044,27 @@
     }
 
     function showCheatCelebration() {
-      // Subdued "shame" particles instead of celebratory confetti.
+      // Confetti — same energy as the success path, just amber/violet so it reads
+      // as cheeky-celebratory ("congrats, you cheated") rather than pure victory.
       if (typeof window.confetti === 'function') {
-        const colors = ['#92400E', '#B45309', '#D97706', '#A78BFA', '#6B7280'];
+        const colors = ['#D97706', '#F59E0B', '#FBBF24', '#A78BFA', '#9CA3AF'];
         window.confetti({
-          particleCount: 35,
-          spread: 60,
+          particleCount: 90,
+          spread: 70,
           angle: 60,
           origin: { x: 0, y: 1 },
           colors,
-          startVelocity: 35,
-          scalar: 0.85,
+          startVelocity: 55,
+          scalar: 1.05,
         });
         window.confetti({
-          particleCount: 35,
-          spread: 60,
+          particleCount: 90,
+          spread: 70,
           angle: 120,
           origin: { x: 1, y: 1 },
           colors,
-          startVelocity: 35,
-          scalar: 0.85,
+          startVelocity: 55,
+          scalar: 1.05,
         });
       }
       const overlay = document.createElement('div');
@@ -3035,7 +3072,7 @@
       overlay.innerHTML = `
         <div class="success-badge cheat-badge">
           <div class="success-check">🤫</div>
-          <div class="success-text">CHEATED!</div>
+          <div class="success-text">CONGRATS,<br>CHEATER!</div>
         </div>
       `;
       document.body.appendChild(overlay);
@@ -3045,23 +3082,68 @@
       }, 1500);
     }
 
-    // Step 5 — Reveal Answer. Surrender = three escalating clicks. Each stage is
-    // a deeper plea — the user has to literally beg for the answer (no clue text).
-    // Secret xyzzy/!reveal phrase in the verify input still works as a backdoor.
+    // Step 5 — Reveal Answer. Each click on Yes escalates the modal itself —
+    // the question gets more dramatic and the Yes button text more pleading.
+    // Five stages of begging before the answer reveals. Secret xyzzy/!reveal
+    // phrase in the verify input still works as a backdoor.
     function openRevealPrank() {
-      openRunawayConfirm({
-        title: 'Are you sure?',
-        message: 'You want to reveal the answer?',
-        yesText: 'Yes, reveal it',
-        cancelText: "OK fine, I'll keep trying",
-        giveUpKind: 'escalate',
-        giveUpStages: [
-          'Please?',
-          'Pretty please?',
-          '🥺 Give me a break, please',
+      openEscalatingConfirm({
+        stages: [
+          { title: 'Ready to give up?', message: "You've come this far — sure you want me to just hand it to you?", yes: 'Yes' },
+          { title: 'Are you sure?',     message: 'No shame in stepping away for a coffee instead.',                yes: 'Yes, please' },
+          { title: 'Really, really?',   message: "I can do this all day. You're closer than you think.",          yes: 'Yes, I really do' },
+          { title: 'Last chance to be a hero',
+                                       message: "One more squint at the K-map and you'll have it.",               yes: 'Just show me already 😩' },
+          { title: "Fine. But I'm judging you.",
+                                       message: "Don't say I didn't warn you.",                                   yes: 'Just spill it 🥺' },
         ],
+        cancelText: "Nah, I'll keep trying",
         onConfirm: revealAnswer,
       });
+    }
+
+    // Sequential confirmation modal — each Yes-click swaps the question/button
+    // for the next stage. Final stage triggers onConfirm. Cancel closes anytime.
+    function openEscalatingConfirm({ stages, cancelText = 'Cancel', onConfirm }) {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      const box = document.createElement('div');
+      box.className = 'modal-box modal-box-escalating';
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+
+      let idx = 0;
+
+      function close() { overlay.remove(); }
+
+      function render() {
+        const s = stages[idx];
+        const counter = `<span class="modal-stage-counter">Round ${idx + 1} of ${stages.length}</span>`;
+        box.innerHTML = `
+          ${counter}
+          <h3>${s.title}</h3>
+          <p>${s.message}</p>
+          <div class="modal-actions modal-actions-stacked">
+            <button class="modal-cancel" type="button">${cancelText}</button>
+            <button class="modal-yes modal-yes-static" type="button">${s.yes}</button>
+          </div>
+        `;
+        box.querySelector('.modal-cancel').addEventListener('click', close);
+        const yes = box.querySelector('.modal-yes');
+        yes.addEventListener('click', () => {
+          idx++;
+          if (idx >= stages.length) {
+            close();
+            if (onConfirm) onConfirm();
+          } else {
+            box.classList.remove('shake');
+            void box.offsetWidth;
+            box.classList.add('shake');
+            render();
+          }
+        });
+      }
+      render();
     }
 
     // Step 2 — Fill F from expression. Surrender = single click.
