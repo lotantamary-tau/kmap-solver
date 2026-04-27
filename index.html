@@ -582,7 +582,8 @@
       margin-top: 8px;
     }
 
-    /* Expression line — clickable AST chunks. */
+    /* Expression line — clickable AST chunks. Stays on one line; horizontal
+       scroll if the substituted/simplified form exceeds the panel width. */
     .eval-expr {
       font-family: var(--font-mono);
       font-size: 17px;
@@ -595,7 +596,13 @@
       margin: 6px 0 10px;
       word-spacing: 1px;
       user-select: none;
+      white-space: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
     }
+    .eval-expr::-webkit-scrollbar { height: 6px; }
+    .eval-expr::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+    .eval-expr::-webkit-scrollbar-track { background: transparent; }
     .eval-chunk {
       cursor: pointer;
       padding: 0 1px;
@@ -618,21 +625,11 @@
       background: transparent;
       color: inherit;
     }
-    .eval-chunk.eval-const-0 { color: #B45309; }
-    .eval-chunk.eval-const-1 { color: var(--accent); font-weight: 600; }
+    /* Constants are visually distinct (color/weight) but not clickable —
+       there's no simpler value to replace them with. */
+    .eval-const { color: #B45309; cursor: default; }
+    .eval-const-1 { color: var(--accent); font-weight: 600; }
     .eval-chunk.eval-op { font-weight: 700; }
-    .eval-chunk.eval-op.is-ready::after {
-      content: '';
-      display: inline-block;
-      width: 5px;
-      height: 5px;
-      border-radius: 50%;
-      background: var(--accent);
-      margin-left: 3px;
-      vertical-align: middle;
-      opacity: 0.55;
-    }
-    .eval-chunk.is-selected.is-ready::after { background: #fff; opacity: 0.9; }
 
     /* Replace input row. */
     .eval-input-row {
@@ -2363,30 +2360,15 @@
     function evalRenderNode(node, path, parentOp, selectedPath) {
       const frag = document.createDocumentFragment();
       const isSelected = evalPathsEqual(path, selectedPath);
-      const ready = evalIsReady(node);
-
-      const mkChunk = (cls, text, p) => {
-        const el = document.createElement('span');
-        el.className = 'eval-chunk ' + cls;
-        if (isSelected && p === path) el.classList.add('is-selected');
-        if (ready && cls === 'eval-op-not' || cls === 'eval-op-and' || cls === 'eval-op-or') {
-          // Soft hint dot via class (CSS handles the dot).
-          el.classList.add('is-ready');
-        }
-        el.dataset.evalPath = evalPathToString(p);
-        el.textContent = text;
-        return el;
-      };
 
       if (node.op === 'CONST') {
         // Plain constants get parens when nested under an op (visual grouping
         // for substituted bits like (1)' or 0·(0)). Root constants are bare.
+        // Constants are NOT clickable — no simpler value to replace them with.
         const wrap = parentOp != null;
         if (wrap) frag.appendChild(document.createTextNode('('));
         const span = document.createElement('span');
-        span.className = 'eval-chunk eval-const eval-const-' + node.value;
-        if (isSelected) span.classList.add('is-selected');
-        span.dataset.evalPath = evalPathToString(path);
+        span.className = 'eval-const eval-const-' + node.value;
         span.textContent = String(node.value);
         frag.appendChild(span);
         if (wrap) frag.appendChild(document.createTextNode(')'));
@@ -2416,7 +2398,6 @@
         wrapper.appendChild(document.createTextNode(')'));
         const op = document.createElement('span');
         op.className = 'eval-chunk eval-op eval-op-not';
-        if (ready) op.classList.add('is-ready');
         if (isSelected) op.classList.add('is-selected');
         op.dataset.evalPath = evalPathToString(path);
         op.textContent = "'";
@@ -2435,7 +2416,6 @@
         wrapper.appendChild(evalRenderNode(node.args[0], path.concat(0), node.op, selectedPath));
         const op = document.createElement('span');
         op.className = 'eval-chunk eval-op ' + (isOr ? 'eval-op-or' : 'eval-op-and');
-        if (ready) op.classList.add('is-ready');
         if (isSelected) op.classList.add('is-selected');
         op.dataset.evalPath = evalPathToString(path);
         op.textContent = isOr ? ' + ' : '·';
@@ -2674,7 +2654,7 @@
         // Nothing selected — prompt user to click a chunk.
         const prompt = document.createElement('div');
         prompt.className = 'eval-prompt';
-        prompt.textContent = 'Click any chunk above (a digit, a ‘ , a · , or a +) to replace it with a simpler value.';
+        prompt.textContent = "Click an operator above (a ' , · , or +) to replace its sub-expression with a simpler value.";
         panel.appendChild(prompt);
       }
 
