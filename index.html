@@ -443,6 +443,264 @@
     table.truthTable td.f.wrong { background: var(--error-soft); color: var(--error); }
 
     /* Row index column ("i" — same value as the minterm number). */
+    /* === Step 2: truth table + evaluator side-by-side === */
+    .tt-evaluator-row {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      margin: 8px 0 12px;
+    }
+    .tt-evaluator-row > table.truthTable { flex: 0 0 auto; }
+    .tt-evaluator-row > .evaluator-panel {
+      flex: 1 1 320px;
+      max-width: 420px;
+      min-width: 280px;
+    }
+    @media (max-width: 880px) {
+      .tt-evaluator-row > .evaluator-panel { max-width: none; }
+    }
+
+    /* Truth table i-col gets a "click me" affordance only when the evaluator
+       is enabled (data-eval-enabled="true" on #step2Body). */
+    #step2Body[data-eval-enabled="true"] table.truthTable td.i-col {
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+    }
+    #step2Body[data-eval-enabled="true"] table.truthTable td.i-col:hover {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    #step2Body[data-eval-enabled="true"] table.truthTable tbody tr.is-eval-active td.i-col {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+
+    /* === Apply button (Step 2 expression mode) === */
+    .apply-btn {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      box-shadow: var(--shadow-sm);
+      transition: background 0.15s, box-shadow 0.15s, opacity 0.15s;
+    }
+    .apply-btn:hover:not(:disabled) {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      box-shadow: var(--shadow-md);
+    }
+    .apply-btn:disabled {
+      background: var(--surface-soft);
+      border-color: var(--border);
+      color: var(--text-3);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    /* === Evaluator panel — same warm-tinted card as Step 4's helper bubble === */
+    .evaluator-panel {
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--radius-lg);
+      padding: 14px 18px 16px;
+      box-shadow: var(--shadow-sm);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      color: var(--text);
+    }
+    .evaluator-panel.is-disabled {
+      opacity: 0.62;
+      border-left-color: var(--border-strong);
+    }
+    .eval-header {
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-2);
+      margin-bottom: 8px;
+    }
+    .eval-header-active {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .eval-row-label {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: none;
+      color: var(--text);
+    }
+    .eval-header-actions { display: flex; gap: 6px; }
+    .eval-action {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-3);
+      padding: 3px 9px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-ui);
+      font-size: 11px;
+      cursor: pointer;
+      box-shadow: none;
+    }
+    .eval-action:hover:not(:disabled) {
+      border-color: var(--text-3);
+      color: var(--text-2);
+      background: var(--surface);
+    }
+    .eval-action:disabled { opacity: 0.45; cursor: default; }
+    .eval-placeholder {
+      margin: 0;
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--text-2);
+    }
+    .eval-placeholder strong { color: var(--accent); font-weight: 600; }
+    .eval-i-pill {
+      display: inline-block;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 4px;
+      padding: 0 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-2);
+    }
+    .eval-prompt {
+      font-size: 12px;
+      color: var(--text-3);
+      font-style: italic;
+      line-height: 1.5;
+      margin-top: 8px;
+    }
+
+    /* Expression line — clickable AST chunks. */
+    .eval-expr {
+      font-family: var(--font-mono);
+      font-size: 17px;
+      line-height: 1.7;
+      letter-spacing: 0;
+      padding: 10px 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      margin: 6px 0 10px;
+      word-spacing: 1px;
+      user-select: none;
+    }
+    .eval-chunk {
+      cursor: pointer;
+      padding: 0 1px;
+      border-radius: 3px;
+      transition: background 0.1s, color 0.1s;
+    }
+    .eval-chunk:hover { background: var(--accent-soft); }
+    .eval-chunk.is-selected,
+    .eval-not-wrap.is-selected,
+    .eval-and-wrap.is-selected,
+    .eval-or-wrap.is-selected {
+      background: var(--accent);
+      color: #fff;
+      border-radius: 4px;
+      padding: 1px 3px;
+    }
+    .eval-not-wrap.is-selected .eval-chunk,
+    .eval-and-wrap.is-selected .eval-chunk,
+    .eval-or-wrap.is-selected .eval-chunk {
+      background: transparent;
+      color: inherit;
+    }
+    .eval-chunk.eval-const-0 { color: #B45309; }
+    .eval-chunk.eval-const-1 { color: var(--accent); font-weight: 600; }
+    .eval-chunk.eval-op { font-weight: 700; }
+    .eval-chunk.eval-op.is-ready::after {
+      content: '';
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-left: 3px;
+      vertical-align: middle;
+      opacity: 0.55;
+    }
+    .eval-chunk.is-selected.is-ready::after { background: #fff; opacity: 0.9; }
+
+    /* Replace input row. */
+    .eval-input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+    .eval-input-label { font-size: 12px; color: var(--text-2); }
+    #evalReplaceInput {
+      flex: 1 1 80px;
+      min-width: 60px;
+      padding: 5px 8px;
+      font-family: var(--font-mono);
+      font-size: 14px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+    }
+    #evalReplaceInput:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+    #evalReplaceInput.shake { animation: evalShake 0.32s ease; }
+    @keyframes evalShake {
+      0%, 100% { transform: translateX(0); }
+      20%      { transform: translateX(-5px); border-color: var(--error); }
+      40%      { transform: translateX(4px); border-color: var(--error); }
+      60%      { transform: translateX(-3px); }
+      80%      { transform: translateX(2px); }
+    }
+    .eval-replace-btn {
+      padding: 5px 10px;
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      box-shadow: var(--shadow-sm);
+    }
+    .eval-replace-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .eval-input-err {
+      font-size: 11.5px;
+      color: var(--error);
+      flex-basis: 100%;
+      min-height: 14px;
+    }
+
+    /* "Reduced" final state. */
+    .eval-done { margin-top: 6px; }
+    .eval-done-msg {
+      font-size: 13px;
+      color: var(--success);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .eval-apply-btn {
+      background: var(--success);
+      border-color: var(--success);
+      color: #fff;
+      font-weight: 600;
+      padding: 7px 14px;
+      box-shadow: var(--shadow-sm);
+    }
+    .eval-apply-btn:hover {
+      background: #166534;
+      border-color: #166534;
+      box-shadow: var(--shadow-md);
+    }
+
     table.truthTable th.i-col,
     table.truthTable td.i-col {
       background: #F4F1EB;
@@ -1753,8 +2011,13 @@
         tries++;
       } while ((sop.expression === '0' || sop.expression === '1') && tries < 20);
       state.values = Array(1 << state.n).fill('X');
-      state.answerKey = { expression: sop.expression, evaluated: bits };
+      // Random Function bypasses the Apply gate — it's already a committed
+      // expression/answer-key pair by construction. Re-parse to get the AST
+      // so the step-by-step evaluator has it available.
+      const parsed = KMapCore.parseExpression(sop.expression, state.varNames);
+      state.answerKey = { expression: sop.expression, ast: parsed.ok ? parsed.ast : null, evaluated: bits };
       state.truthTableVerified = false;
+      state.evaluator = null;
       cascadeChange(2);
       renderAll();
     }
@@ -1784,6 +2047,7 @@
         return `
           <div class="expr-row">
             <input id="exprInput" type="text" placeholder="e.g. A'B + AC" autocomplete="off" value="${safe}">
+            <button id="applyBtn" type="button" class="apply-btn" disabled title="Type a valid expression and click Apply to enable the truth-table tools.">✓ Apply</button>
             <button id="randomFnBtn" type="button">🎲 Random function</button>
           </div>
           <div class="err" id="exprErr"></div>
@@ -1819,7 +2083,17 @@
       const path = state.startingPoint;
       if (path === 'expression') {
         const exprInput = document.getElementById('exprInput');
-        if (exprInput) exprInput.addEventListener('input', handleExprInput);
+        if (exprInput) {
+          exprInput.addEventListener('input', handleExprInput);
+          exprInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (canApplyExpression()) applyExpression();
+            }
+          });
+        }
+        const ap = document.getElementById('applyBtn');
+        if (ap) ap.addEventListener('click', applyExpression);
         const rfn = document.getElementById('randomFnBtn');
         if (rfn) rfn.addEventListener('click', practiceRandomFunction);
         const af = document.getElementById('autoFillBtn');
@@ -1830,6 +2104,7 @@
         const rtt = document.getElementById('randomTtBtn');
         if (rtt) rtt.addEventListener('click', practiceRandomTruthTable);
       }
+      refreshExpressionDependentUI();
     }
 
     // Step 2 starting-point segmented control. Animates thumb (CSS) and
@@ -1868,6 +2143,19 @@
         if (noteEl) noteEl.innerHTML = pathNoteText(path);
         if (topEl) topEl.innerHTML = pathTopControlsHTML(path);
         if (botEl) botEl.innerHTML = pathBottomControlsHTML(path);
+        // Mount/unmount the evaluator panel based on the new path.
+        const ttRow = document.querySelector('#step2Body .tt-evaluator-row');
+        let panel = document.getElementById('evaluatorPanel');
+        if (path === 'expression') {
+          if (!panel && ttRow) {
+            panel = document.createElement('div');
+            panel.id = 'evaluatorPanel';
+            panel.className = 'evaluator-panel';
+            ttRow.appendChild(panel);
+          }
+        } else if (panel) {
+          panel.remove();
+        }
         wirePathHandlers();
         updateExpressionPathButtons();
         // Trigger fade-in by removing is-leaving on next frame.
@@ -1877,33 +2165,520 @@
       }, 200);
     }
 
-    // Live-parse the expression input: keep state.answerKey in sync without re-rendering the table.
+    // Input handler — does NOT set answerKey. Just detects whether the input
+    // differs from the currently-applied expression (in which case clear the
+    // applied state so dependent UI deactivates), and validates syntax for
+    // inline parse-error display. Apply button + evaluator panel react via
+    // refreshExpressionDependentUI.
     function handleExprInput() {
       const exprInput = document.getElementById('exprInput');
       const errEl = document.getElementById('exprErr');
       if (!exprInput) return;
       const src = exprInput.value.trim();
-      if (!src) {
+
+      // If user has edited away from the applied expression, deactivate.
+      const appliedSrc = state.answerKey ? state.answerKey.expression : null;
+      if (src !== appliedSrc && state.answerKey) {
         state.answerKey = null;
         state.truthTableVerified = false;
-        if (errEl) errEl.textContent = '';
-        updateExpressionPathButtons();
-        return;
+        state.evaluator = null;
+        cascadeChange(2);
       }
+
+      // Inline parse-error display (only for non-empty input).
+      if (errEl) {
+        if (!src) {
+          errEl.textContent = '';
+        } else {
+          const r = KMapCore.parseExpression(src, state.varNames);
+          errEl.textContent = r.ok ? '' : r.error;
+        }
+      }
+
+      refreshExpressionDependentUI();
+    }
+
+    // The Apply button — explicitly commits the current input as the
+    // answer key. Called only on click; no longer happens automatically.
+    function applyExpression() {
+      const exprInput = document.getElementById('exprInput');
+      if (!exprInput) return;
+      const src = exprInput.value.trim();
+      if (!src) return;
       const r = KMapCore.parseExpression(src, state.varNames);
-      if (!r.ok) {
-        state.answerKey = null;
-        state.truthTableVerified = false;
-        if (errEl) errEl.textContent = r.error;
-        updateExpressionPathButtons();
-        return;
-      }
-      if (errEl) errEl.textContent = '';
+      if (!r.ok) return;
       const evaluated = [];
       for (let m = 0; m < (1 << state.n); m++) evaluated.push(KMapCore.evaluateExpr(r.ast, m, state.n));
-      state.answerKey = { expression: src, evaluated };
+      state.answerKey = { expression: src, ast: r.ast, evaluated };
       state.truthTableVerified = false;
+      state.evaluator = null;
+      cascadeChange(2);
+      refreshExpressionDependentUI();
+    }
+
+    // Whether the current input value can be applied — i.e. it parses cleanly
+    // AND differs from the currently-applied expression (so there's something
+    // new to apply).
+    function canApplyExpression() {
+      const exprInput = document.getElementById('exprInput');
+      if (!exprInput) return false;
+      const src = exprInput.value.trim();
+      if (!src) return false;
+      if (state.answerKey && state.answerKey.expression === src) return false;
+      const r = KMapCore.parseExpression(src, state.varNames);
+      return r.ok;
+    }
+
+    // Update visibility / enabled state of every Step-2 widget that depends
+    // on the applied expression: the Apply button itself, Check, Fill F,
+    // the evaluator panel, the truth table's #-column click affordance, and
+    // the Continue button. Called after every input change and Apply click.
+    function refreshExpressionDependentUI() {
+      const apBtn = document.getElementById('applyBtn');
+      if (apBtn) apBtn.disabled = !canApplyExpression();
       updateExpressionPathButtons();
+      // Toggle the truth-table-i-col click affordance via a flag on the body.
+      const body = document.getElementById('step2Body');
+      if (body) body.dataset.evalEnabled = state.answerKey ? 'true' : 'false';
+      // Re-render the evaluator panel to reflect new state.
+      renderEvaluatorPanel();
+      if (typeof evalUpdateActiveRowClass === 'function') evalUpdateActiveRowClass();
+    }
+
+    // ===== Step-by-step evaluator (Step 2 right-side panel) =====
+    //
+    // The user clicks a row's i-col cell in the truth table. The current
+    // answerKey AST is substituted for that row's variable values, and the
+    // resulting expression is rendered as nested clickable spans. The user
+    // selects any subtree, types a replacement value, and presses Enter —
+    // the app validates equivalence (selected subtree and typed input both
+    // evaluate to the same constant) and swaps the node. Repeat until the
+    // expression is a single 0 or 1; then write it to the F cell.
+
+    function evalCloneAst(ast) {
+      if (!ast) return ast;
+      if (ast.op === 'NOT') return { op: 'NOT', arg: evalCloneAst(ast.arg) };
+      if (ast.op === 'AND' || ast.op === 'OR') return { op: ast.op, args: ast.args.map(evalCloneAst) };
+      return { ...ast };
+    }
+
+    // Replace VAR leaves with CONST nodes carrying the row's bit values.
+    function evalSubstituteVars(ast, rowMinterm, n) {
+      if (ast.op === 'VAR') {
+        const value = (rowMinterm >> (n - 1 - ast.index)) & 1;
+        return { op: 'CONST', value };
+      }
+      if (ast.op === 'NOT') return { op: 'NOT', arg: evalSubstituteVars(ast.arg, rowMinterm, n) };
+      if (ast.op === 'AND' || ast.op === 'OR') {
+        return { op: ast.op, args: ast.args.map(a => evalSubstituteVars(a, rowMinterm, n)) };
+      }
+      return { ...ast };
+    }
+
+    // Evaluate an AST. Returns 0|1 if all leaves are CONST, null if any VAR remains.
+    function evalAst(ast) {
+      if (ast.op === 'CONST') return ast.value;
+      if (ast.op === 'VAR') return null;
+      if (ast.op === 'NOT') {
+        const v = evalAst(ast.arg);
+        return v === null ? null : (v ? 0 : 1);
+      }
+      if (ast.op === 'AND') {
+        const a = evalAst(ast.args[0]); const b = evalAst(ast.args[1]);
+        return (a === null || b === null) ? null : ((a && b) ? 1 : 0);
+      }
+      if (ast.op === 'OR') {
+        const a = evalAst(ast.args[0]); const b = evalAst(ast.args[1]);
+        return (a === null || b === null) ? null : ((a || b) ? 1 : 0);
+      }
+      return null;
+    }
+
+    function evalGetNode(ast, path) {
+      let n = ast;
+      for (const i of path) {
+        if (n.op === 'NOT') n = n.arg;
+        else if (n.op === 'AND' || n.op === 'OR') n = n.args[i];
+        else throw new Error('eval: bad path');
+      }
+      return n;
+    }
+
+    function evalSetNode(ast, path, newNode) {
+      if (path.length === 0) return newNode;
+      const [head, ...rest] = path;
+      if (ast.op === 'NOT') {
+        return { op: 'NOT', arg: evalSetNode(ast.arg, rest, newNode) };
+      }
+      if (ast.op === 'AND' || ast.op === 'OR') {
+        const newArgs = ast.args.slice();
+        newArgs[head] = evalSetNode(ast.args[head], rest, newNode);
+        return { op: ast.op, args: newArgs };
+      }
+      throw new Error('eval: bad path on leaf');
+    }
+
+    // True when the node is a single reduction step away from a constant.
+    function evalIsReady(node) {
+      if (node.op === 'NOT') return node.arg.op === 'CONST';
+      if (node.op === 'AND' || node.op === 'OR') {
+        return node.args[0].op === 'CONST' && node.args[1].op === 'CONST';
+      }
+      return false;
+    }
+
+    // ----- Rendering -----
+    // Each clickable element gets data-eval-path="i,j,k" (CSV index path).
+    // The wrapper of an op subtree has the same data-path as its operator
+    // span, so closest('[data-eval-path]') from the click target naturally
+    // returns the deepest user-visible chunk.
+
+    function evalPathToString(path) { return path.join(','); }
+    function evalPathFromString(s) {
+      if (!s) return [];
+      return s.split(',').map(x => parseInt(x, 10));
+    }
+    function evalPathsEqual(a, b) {
+      if (!a || !b) return false;
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+      return true;
+    }
+
+    // Render an AST node into a DocumentFragment.
+    // parentOp is the op of the parent (or null for root) — used to decide
+    // whether this node's display needs surrounding parens.
+    function evalRenderNode(node, path, parentOp, selectedPath) {
+      const frag = document.createDocumentFragment();
+      const isSelected = evalPathsEqual(path, selectedPath);
+      const ready = evalIsReady(node);
+
+      const mkChunk = (cls, text, p) => {
+        const el = document.createElement('span');
+        el.className = 'eval-chunk ' + cls;
+        if (isSelected && p === path) el.classList.add('is-selected');
+        if (ready && cls === 'eval-op-not' || cls === 'eval-op-and' || cls === 'eval-op-or') {
+          // Soft hint dot via class (CSS handles the dot).
+          el.classList.add('is-ready');
+        }
+        el.dataset.evalPath = evalPathToString(p);
+        el.textContent = text;
+        return el;
+      };
+
+      if (node.op === 'CONST') {
+        // Plain constants get parens when nested under an op (visual grouping
+        // for substituted bits like (1)' or 0·(0)). Root constants are bare.
+        const wrap = parentOp != null;
+        if (wrap) frag.appendChild(document.createTextNode('('));
+        const span = document.createElement('span');
+        span.className = 'eval-chunk eval-const eval-const-' + node.value;
+        if (isSelected) span.classList.add('is-selected');
+        span.dataset.evalPath = evalPathToString(path);
+        span.textContent = String(node.value);
+        frag.appendChild(span);
+        if (wrap) frag.appendChild(document.createTextNode(')'));
+        return frag;
+      }
+      if (node.op === 'VAR') {
+        // Should not normally appear after substitution, but render for safety.
+        const span = document.createElement('span');
+        span.className = 'eval-chunk eval-var';
+        span.dataset.evalPath = evalPathToString(path);
+        span.textContent = state.varNames[node.index] || '?';
+        frag.appendChild(span);
+        return frag;
+      }
+      if (node.op === 'NOT') {
+        // Render the arg, parenthesized, then a small ' postfix.
+        const argFrag = evalRenderNode(node.arg, path.concat(0), 'NOT', selectedPath);
+        // Wrap the whole NOT (arg + ') in a wrapper so selecting just the NOT
+        // is possible: clicking the ' selects path; clicking inside the arg
+        // selects the inner path because `closest` finds the nearest match.
+        const wrapper = document.createElement('span');
+        wrapper.className = 'eval-not-wrap';
+        if (isSelected) wrapper.classList.add('is-selected');
+        // Open paren
+        wrapper.appendChild(document.createTextNode('('));
+        wrapper.appendChild(argFrag);
+        wrapper.appendChild(document.createTextNode(')'));
+        const op = document.createElement('span');
+        op.className = 'eval-chunk eval-op eval-op-not';
+        if (ready) op.classList.add('is-ready');
+        if (isSelected) op.classList.add('is-selected');
+        op.dataset.evalPath = evalPathToString(path);
+        op.textContent = "'";
+        wrapper.appendChild(op);
+        frag.appendChild(wrapper);
+        return frag;
+      }
+      if (node.op === 'AND' || node.op === 'OR') {
+        const isOr = node.op === 'OR';
+        // Wrap if nested under a higher-precedence op or a NOT (parens for clarity).
+        const wrap = parentOp === 'NOT' || (isOr && parentOp === 'AND');
+        const wrapper = document.createElement('span');
+        wrapper.className = isOr ? 'eval-or-wrap' : 'eval-and-wrap';
+        if (isSelected) wrapper.classList.add('is-selected');
+        if (wrap) wrapper.appendChild(document.createTextNode('('));
+        wrapper.appendChild(evalRenderNode(node.args[0], path.concat(0), node.op, selectedPath));
+        const op = document.createElement('span');
+        op.className = 'eval-chunk eval-op ' + (isOr ? 'eval-op-or' : 'eval-op-and');
+        if (ready) op.classList.add('is-ready');
+        if (isSelected) op.classList.add('is-selected');
+        op.dataset.evalPath = evalPathToString(path);
+        op.textContent = isOr ? ' + ' : '·';
+        wrapper.appendChild(op);
+        wrapper.appendChild(evalRenderNode(node.args[1], path.concat(1), node.op, selectedPath));
+        if (wrap) wrapper.appendChild(document.createTextNode(')'));
+        frag.appendChild(wrapper);
+        return frag;
+      }
+      return frag;
+    }
+
+    // Format the row label e.g. "Row 5 — A=1, B=0, C=1".
+    function evalRowLabel(rowMinterm) {
+      const parts = state.varNames.map((name, i) => {
+        const bit = (rowMinterm >> (state.n - 1 - i)) & 1;
+        return `${name}=${bit}`;
+      });
+      return `Row ${rowMinterm} — ${parts.join(', ')}`;
+    }
+
+    function evalUpdateActiveRowClass() {
+      // Mark the currently-evaluated row's tr in the truth table.
+      const tbody = document.querySelector('#step2Body table.truthTable tbody');
+      if (!tbody) return;
+      tbody.querySelectorAll('tr.is-eval-active').forEach(tr => tr.classList.remove('is-eval-active'));
+      if (state.evaluator) {
+        const cell = tbody.querySelector(`td.i-col[data-minterm="${state.evaluator.rowMinterm}"]`);
+        if (cell && cell.parentElement) cell.parentElement.classList.add('is-eval-active');
+      }
+    }
+
+    // Open a new evaluator session for the given row.
+    function openEvaluator(rowMinterm) {
+      if (!state.answerKey || !state.answerKey.ast) return;
+      state.evaluator = {
+        rowMinterm,
+        ast: evalSubstituteVars(state.answerKey.ast, rowMinterm, state.n),
+        selectedPath: null,
+        history: [],
+      };
+      renderEvaluatorPanel();
+      evalUpdateActiveRowClass();
+    }
+
+    function closeEvaluator() {
+      state.evaluator = null;
+      renderEvaluatorPanel();
+      evalUpdateActiveRowClass();
+    }
+
+    function evalSelectPath(path) {
+      if (!state.evaluator) return;
+      // Toggle: clicking the same chunk again deselects.
+      if (evalPathsEqual(path, state.evaluator.selectedPath)) {
+        state.evaluator.selectedPath = null;
+      } else {
+        state.evaluator.selectedPath = path;
+      }
+      renderEvaluatorPanel();
+      // After re-render, focus the input if a path is selected.
+      if (state.evaluator.selectedPath) {
+        const inp = document.getElementById('evalReplaceInput');
+        if (inp) inp.focus();
+      }
+    }
+
+    function evalUndo() {
+      if (!state.evaluator || state.evaluator.history.length === 0) return;
+      const prev = state.evaluator.history.pop();
+      state.evaluator.ast = prev.ast;
+      state.evaluator.selectedPath = prev.selectedPath;
+      renderEvaluatorPanel();
+    }
+
+    function evalTryReplace() {
+      const inp = document.getElementById('evalReplaceInput');
+      if (!inp || !state.evaluator || !state.evaluator.selectedPath) return;
+      const text = inp.value.trim();
+      if (!text) return;
+      const r = KMapCore.parseExpression(text, state.varNames);
+      if (!r.ok) {
+        evalShakeInput('parse error');
+        return;
+      }
+      // Substitute vars (so user can type literals matching this row) and evaluate.
+      const userAst = evalSubstituteVars(r.ast, state.evaluator.rowMinterm, state.n);
+      const userVal = evalAst(userAst);
+      const selectedNode = evalGetNode(state.evaluator.ast, state.evaluator.selectedPath);
+      const expectedVal = evalAst(selectedNode);
+      if (userVal === null || expectedVal === null || userVal !== expectedVal) {
+        evalShakeInput('not equivalent');
+        return;
+      }
+      // Accept: push history, replace node, clear selection.
+      state.evaluator.history.push({
+        ast: state.evaluator.ast,
+        selectedPath: state.evaluator.selectedPath,
+      });
+      state.evaluator.ast = evalSetNode(state.evaluator.ast, state.evaluator.selectedPath, userAst);
+      state.evaluator.selectedPath = null;
+      renderEvaluatorPanel();
+    }
+
+    function evalShakeInput(reason) {
+      const inp = document.getElementById('evalReplaceInput');
+      if (!inp) return;
+      inp.classList.remove('shake');
+      void inp.offsetWidth;
+      inp.classList.add('shake');
+      const tip = document.getElementById('evalReplaceErr');
+      if (tip) tip.textContent = '≠ ' + (reason || 'try again');
+    }
+
+    function evalApplyToRow() {
+      if (!state.evaluator) return;
+      const v = evalAst(state.evaluator.ast);
+      if (v !== 0 && v !== 1) return;
+      const m = state.evaluator.rowMinterm;
+      state.values[m] = v;
+      state.solverGroups = [];
+      state.truthTableVerified = false;
+      cascadeChange(2);
+      // Update the F cell DOM in place + close evaluator.
+      const cell = document.querySelector(`#step2Body td.f[data-minterm="${m}"]`);
+      if (cell) {
+        cell.classList.remove('wrong', 'x');
+        cell.textContent = String(v);
+        cell.classList.remove('cell-pop');
+        void cell.offsetWidth;
+        cell.classList.add('cell-pop');
+      }
+      // Clear any stale check-result tally (it may now be wrong).
+      const result = document.getElementById('checkTtResult');
+      if (result) result.innerHTML = '';
+      const cont = document.getElementById('buildKmapBtn');
+      if (cont) {
+        const locked = state.startingPoint === 'expression' && (!state.answerKey || !state.truthTableVerified);
+        cont.disabled = locked;
+      }
+      closeEvaluator();
+    }
+
+    // (Re-)render the evaluator panel based on current state.evaluator.
+    function renderEvaluatorPanel() {
+      const panel = document.getElementById('evaluatorPanel');
+      if (!panel) return;
+      panel.innerHTML = '';
+
+      // Three states: (1) expression not applied, (2) applied but no row selected,
+      // (3) row selected — running session.
+      if (!state.answerKey) {
+        panel.classList.add('is-disabled');
+        panel.innerHTML = `
+          <div class="eval-header">🧮 Step-by-step evaluator</div>
+          <p class="eval-placeholder">
+            Type an expression and click <strong>✓ Apply</strong> to enable.
+            Then click any row's <span class="eval-i-pill">i</span> cell to step through it.
+          </p>
+        `;
+        return;
+      }
+      panel.classList.remove('is-disabled');
+
+      if (!state.evaluator) {
+        panel.innerHTML = `
+          <div class="eval-header">🧮 Step-by-step evaluator</div>
+          <p class="eval-placeholder">
+            Click any row's <span class="eval-i-pill">i</span> cell to substitute the values
+            and simplify <code>F</code> step by step.
+          </p>
+        `;
+        return;
+      }
+
+      // Active session.
+      const ev = state.evaluator;
+      const finalVal = evalAst(ev.ast);
+      const isFinal = (finalVal === 0 || finalVal === 1) && ev.ast.op === 'CONST';
+
+      const header = document.createElement('div');
+      header.className = 'eval-header eval-header-active';
+      header.innerHTML = `
+        <span class="eval-row-label">${evalRowLabel(ev.rowMinterm)}</span>
+        <span class="eval-header-actions">
+          <button id="evalUndoBtn" type="button" class="eval-action" ${ev.history.length === 0 ? 'disabled' : ''} title="Undo last replacement">↩ undo</button>
+          <button id="evalCloseBtn" type="button" class="eval-action" title="Close evaluator">✕ close</button>
+        </span>
+      `;
+      panel.appendChild(header);
+
+      // Expression line.
+      const exprLine = document.createElement('div');
+      exprLine.className = 'eval-expr';
+      exprLine.appendChild(document.createTextNode('F = '));
+      exprLine.appendChild(evalRenderNode(ev.ast, [], null, ev.selectedPath));
+      panel.appendChild(exprLine);
+
+      if (isFinal) {
+        // Reduction complete.
+        const done = document.createElement('div');
+        done.className = 'eval-done';
+        done.innerHTML = `
+          <div class="eval-done-msg">✓ Reduced.</div>
+          <button id="evalApplyBtn" type="button" class="eval-apply-btn">✏ Write ${finalVal} to row ${ev.rowMinterm}</button>
+        `;
+        panel.appendChild(done);
+        document.getElementById('evalApplyBtn').addEventListener('click', evalApplyToRow);
+      } else if (ev.selectedPath) {
+        // Show input row for the selected sub-expression.
+        const selectedNode = evalGetNode(ev.ast, ev.selectedPath);
+        const hint = document.createElement('div');
+        hint.className = 'eval-input-row';
+        hint.innerHTML = `
+          <label class="eval-input-label">Replace with:</label>
+          <input id="evalReplaceInput" type="text" autocomplete="off" placeholder="0, 1, or simpler expression" />
+          <button id="evalReplaceBtn" type="button" class="eval-replace-btn">↵</button>
+          <span id="evalReplaceErr" class="eval-input-err"></span>
+        `;
+        panel.appendChild(hint);
+        const inp = document.getElementById('evalReplaceInput');
+        const btn = document.getElementById('evalReplaceBtn');
+        if (inp) {
+          inp.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); evalTryReplace(); }
+            else if (e.key === 'Escape') { e.preventDefault(); evalSelectPath(ev.selectedPath); }
+            else {
+              const tip = document.getElementById('evalReplaceErr');
+              if (tip) tip.textContent = '';
+            }
+          });
+          inp.focus();
+        }
+        if (btn) btn.addEventListener('click', evalTryReplace);
+      } else {
+        // Nothing selected — prompt user to click a chunk.
+        const prompt = document.createElement('div');
+        prompt.className = 'eval-prompt';
+        prompt.textContent = 'Click any chunk above (a digit, a ‘ , a · , or a +) to replace it with a simpler value.';
+        panel.appendChild(prompt);
+      }
+
+      // Wire chunk clicks (delegated on the expression line).
+      exprLine.addEventListener('click', e => {
+        const chunk = e.target.closest('[data-eval-path]');
+        if (!chunk) return;
+        const path = evalPathFromString(chunk.dataset.evalPath);
+        evalSelectPath(path);
+      });
+
+      // Header buttons.
+      const undoBtn = document.getElementById('evalUndoBtn');
+      const closeBtn = document.getElementById('evalCloseBtn');
+      if (undoBtn) undoBtn.addEventListener('click', evalUndo);
+      if (closeBtn) closeBtn.addEventListener('click', closeEvaluator);
     }
 
     function updateExpressionPathButtons() {
@@ -1919,7 +2694,7 @@
         if (locked) {
           cont.title = state.answerKey
             ? 'Click Check truth table first — Continue unlocks once all rows match.'
-            : 'Type an expression (or click 🎲 Random function) and verify the truth table first.';
+            : 'Type an expression (or click 🎲 Random function) and Apply it, then verify the truth table.';
         } else {
           cont.removeAttribute('title');
         }
@@ -1943,6 +2718,9 @@
       kmapVerified: false,
       groupingVerified: false,
       startingPoint: 'expression',  // Step 2 segmented control: 'expression' | 'truthtable'
+      // Step 2 step-by-step evaluator session (null when not active).
+      // {rowMinterm, ast, selectedPath: [i,...]|null, history: [{ast, selectedPath}, ...]}
+      evaluator: null,
       pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
       kmapLayout: null,
@@ -2006,6 +2784,16 @@
         const iTd = document.createElement('td');
         iTd.textContent = String(m);
         iTd.className = 'i-col';
+        iTd.dataset.minterm = m;
+        if (!readOnly) {
+          // Clickable when the evaluator is enabled (answer key applied).
+          // CSS gates cursor/hover via the body's data-eval-enabled flag.
+          iTd.addEventListener('click', () => {
+            if (state.answerKey && state.startingPoint === 'expression') {
+              openEvaluator(m);
+            }
+          });
+        }
         tr.appendChild(iTd);
         for (let i = 0; i < state.n; i++) {
           const td = document.createElement('td');
@@ -2063,8 +2851,17 @@
       topControls.innerHTML = pathTopControlsHTML(path);
       body.appendChild(topControls);
 
-      // Truth table — always visible, no fade.
-      body.appendChild(buildTruthTable());
+      // Truth table + (expression mode only) evaluator panel, side by side.
+      const ttRow = document.createElement('div');
+      ttRow.className = 'tt-evaluator-row';
+      ttRow.appendChild(buildTruthTable());
+      if (path === 'expression') {
+        const panel = document.createElement('div');
+        panel.id = 'evaluatorPanel';
+        panel.className = 'evaluator-panel';
+        ttRow.appendChild(panel);
+      }
+      body.appendChild(ttRow);
 
       // Path-specific controls below the table.
       const bottomControls = document.createElement('div');
