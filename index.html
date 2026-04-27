@@ -782,32 +782,35 @@
       padding-top: 0;
     }
 
-    /* === Step 3 K-map workbench (K-map left, given expression + truth table right) === */
-    .kmap-workbench {
-      display: flex;
-      gap: 28px;
-      flex-wrap: wrap;
-      align-items: flex-start;
-      margin: 18px 0 22px;
+    /* === Step 3 layout: K-map flows in main area; helper bubble floats top-right === */
+    #step3Body { position: relative; }
+    .step-with-helper {
+      padding-right: 320px; /* room for the floating helper bubble */
+      min-height: 240px;    /* keeps content from collapsing if K-map is small */
     }
-    .workbench-section {
-      flex-shrink: 0;
-    }
-    .workbench-section h4 {
-      margin: 0 0 10px;
+    .step-helper-corner {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 300px;
+      max-width: 38%;
+      z-index: 2;
     }
     .workbench-kmap {
-      flex-shrink: 0;
+      margin: 18px 0;
       animation: kmapSettleIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
     }
-    .workbench-reference {
-      flex: 0 1 auto;
-      min-width: 240px;
-      display: flex;
-      flex-direction: column;
+    .workbench-kmap h4 {
+      margin: 0 0 10px;
     }
-    .workbench-reference h4 {
-      margin: 0 0 4px;
+    @media (max-width: 920px) {
+      .step-with-helper { padding-right: 0; }
+      .step-helper-corner {
+        position: static;
+        width: auto;
+        max-width: none;
+        margin-bottom: 18px;
+      }
     }
 
     /* Helper bubble: warm-tinted card matching the path-note language,
@@ -1599,6 +1602,10 @@
       }
 
       if (prev !== undefined && prev !== cur) {
+        // Scroll to the top of the page so each step starts fresh from the top.
+        if (window.scrollY > 0) {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
         const prevEl = document.getElementById('step' + prev);
         const curEl = document.getElementById('step' + cur);
         if (prevEl && prevEl.classList.contains('is-current')) {
@@ -2421,11 +2428,30 @@
       const body = document.getElementById('step3Body');
       body.innerHTML = '';
 
-      // General step note. (Banner is rendered inside the workbench right column.)
+      // Helper bubble — floats to the top-right corner of the step, doesn't disturb
+      // the main vertical flow. Holds the given expression + compact truth table.
+      const refSection = document.createElement('div');
+      refSection.className = 'step-helper-corner helper-bubble';
+      if (state.answerKey) refSection.classList.add('has-banner');
+      const tableLabel = document.createElement('h4');
+      tableLabel.textContent = 'Truth table';
+      refSection.appendChild(tableLabel);
+      const refTable = buildTruthTable({ readOnly: true, compact: true });
+      refSection.appendChild(refTable);
+      body.appendChild(refSection);
+      renderExprBanner(refSection);
+
+      // Main step content lives inside a wrapper with right-padding to reserve
+      // room for the floating helper bubble.
+      const content = document.createElement('div');
+      content.className = 'step-with-helper';
+      body.appendChild(content);
+
+      // General step note.
       const note = document.createElement('p');
       note.className = 'step-note';
-      note.textContent = "Build the K-map from the truth table on the right. Click each cell to cycle 0 → 1 → X.";
-      body.appendChild(note);
+      note.textContent = "Build the K-map from the truth table. Click each cell to cycle 0 → 1 → X.";
+      content.appendChild(note);
 
       // Layout selector — restyled to match the field-row pattern.
       if (state.n >= 2) {
@@ -2439,7 +2465,7 @@
           </select>
           <span class="row-hint">Changes how variables are arranged on rows vs columns.</span>
         `;
-        body.appendChild(sel);
+        content.appendChild(sel);
         const cur = `${state.kmapLayout.rowVars.join(',')}|${state.kmapLayout.colVars.join(',')}`;
         document.getElementById('layoutSelect').value = cur;
         document.getElementById('layoutSelect').addEventListener('change', e => {
@@ -2460,32 +2486,14 @@
         });
       }
 
-      // Workbench: K-map on the left, given expression banner + truth table on the right.
-      const workbench = document.createElement('div');
-      workbench.className = 'kmap-workbench';
-
+      // K-map section in the main flow.
       const kmapSection = document.createElement('div');
-      kmapSection.className = 'workbench-section workbench-kmap';
+      kmapSection.className = 'workbench-kmap';
       const kmapLabel = document.createElement('h4');
       kmapLabel.textContent = 'K-map';
       kmapSection.appendChild(kmapLabel);
       kmapSection.appendChild(buildKmapElement('edit'));
-
-      const refSection = document.createElement('div');
-      refSection.className = 'workbench-section workbench-reference helper-bubble';
-      if (state.answerKey) refSection.classList.add('has-banner');
-      const tableLabel = document.createElement('h4');
-      tableLabel.textContent = 'Truth table';
-      refSection.appendChild(tableLabel);
-      const refTable = buildTruthTable({ readOnly: true, compact: true });
-      refSection.appendChild(refTable);
-
-      workbench.appendChild(kmapSection);
-      workbench.appendChild(refSection);
-      body.appendChild(workbench);
-
-      // Banner sits at the top of the right column, above the truth table.
-      renderExprBanner(refSection);
+      content.appendChild(kmapSection);
 
       // FLIP animation: if we just arrived from Step 2, fly the truth table from
       // its old position to its new position (no fade — it flows).
@@ -2540,7 +2548,7 @@
           <button id="continueGroupingBtn" type="button" ${continueLocked ? 'disabled' : ''}${continueLocked ? ` title="${continueTitle}"` : ''}>Continue →</button>
         </div>
       `;
-      body.appendChild(ctrls);
+      content.appendChild(ctrls);
 
       document.getElementById('autoFillKmapBtn').addEventListener('click', autoFillKmap);
       document.getElementById('clearKmapBtn').addEventListener('click', clearKmapCells);
