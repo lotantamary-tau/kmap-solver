@@ -881,18 +881,15 @@
       background: #fff;
     }
 
-    /* === Step 5 three reference cards (truth table, K-map, given expression) === */
+    /* === Step 5 reference cards (truth table + K-map; given expression below) === */
     .verify-references {
       display: flex;
       flex-wrap: wrap;
-      gap: 18px;
-      margin: 18px 0 22px;
-      align-items: stretch; /* equal heights for visual symmetry */
+      gap: 20px;
+      margin: 18px 0 18px;
+      align-items: flex-start; /* each card sized naturally — truth table can be tall */
     }
     .ref-card {
-      /* Size to the content's natural width — K-map card grows enough to show
-         the full grid without scrolling, truth table card stays compact, given
-         expression sits in a fixed-ish width. */
       flex: 0 0 auto;
       background: var(--surface);
       border: 1px solid var(--border);
@@ -906,21 +903,6 @@
     .ref-card h4 {
       margin: 0 0 6px;
     }
-    .ref-card-given {
-      flex: 0 1 240px;
-      min-width: 200px;
-      max-width: 280px;
-      background: var(--surface-soft);
-      border-left: 3px solid var(--accent);
-      justify-content: flex-start;
-    }
-    .ref-card .ref-formula {
-      font-family: var(--font-mono);
-      font-size: 15px;
-      font-weight: 500;
-      color: var(--text);
-      word-break: break-word;
-    }
     /* K-map view inside a ref card: no inner border, drops shadow (card has one),
        full natural size so no scrollbar appears. */
     .ref-card .kmap[data-mode="view"] {
@@ -930,6 +912,11 @@
     }
     .ref-card .kmap[data-mode="view"] .kmap-cell[data-minterm] {
       cursor: default;
+    }
+    /* Given expression banner under the references — pinned to the input below. */
+    .verify-given-banner {
+      margin-top: 4px;
+      margin-bottom: 14px;
     }
 
     /* === Step 5 success celebration overlay === */
@@ -2064,6 +2051,10 @@
             prevEl.classList.remove('is-leaving', 'is-current');
             if (curEl) curEl.classList.add('is-current');
             _stepTransitionTimer = null;
+            // K-map cells in the new step were display:none until just now, so
+            // their bounding rects were 0×0 when overlays were first drawn.
+            // Re-render overlays now that the step is visible.
+            if (typeof renderOverlays === 'function') renderOverlays();
           }, 220);
           state._prevStep = cur;
           return;
@@ -2077,6 +2068,7 @@
         el.classList.toggle('is-current', i === cur);
       }
       state._prevStep = cur;
+      if (typeof renderOverlays === 'function') renderOverlays();
     }
 
     function updateNavButtons() {
@@ -2541,16 +2533,16 @@
       note.textContent = "Read the simplified Boolean expression off your grouped K-map. Type it below — we'll compare it logically to F.";
       body.appendChild(note);
 
-      // Three reference cards: truth table, K-map (with groups, view-only), given expression.
+      // Two reference cards: truth table + K-map. Given expression goes below.
       const refRow = document.createElement('div');
       refRow.className = 'verify-references';
       body.appendChild(refRow);
 
-      // Truth table card.
+      // Truth table card (full size — not compact in Step 5).
       const ttCard = document.createElement('div');
       ttCard.className = 'ref-card';
       ttCard.innerHTML = '<h4>Truth table</h4>';
-      ttCard.appendChild(buildTruthTable({ readOnly: true, compact: true }));
+      ttCard.appendChild(buildTruthTable({ readOnly: true }));
       refRow.appendChild(ttCard);
 
       // K-map card (read-only view with group overlays).
@@ -2563,15 +2555,18 @@
       kmCard.appendChild(kmContainer);
       refRow.appendChild(kmCard);
 
-      // Given expression card (only when an answer key exists).
+      // Given expression banner — full width, sits between the references and the
+      // verify input so it's clearly the source the user is answering against.
       if (state.answerKey) {
-        const exCard = document.createElement('div');
-        exCard.className = 'ref-card ref-card-given';
-        exCard.innerHTML = `
-          <h4>Given expression</h4>
-          <div class="ref-formula">F(${state.varNames.join(', ')}) = ${state.answerKey.expression}</div>
+        const banner = document.createElement('div');
+        banner.className = 'expr-banner verify-given-banner';
+        banner.innerHTML = `
+          <div class="expr-banner-text">
+            <span class="expr-banner-label">Given expression</span>
+            <span class="expr-banner-formula">F(${state.varNames.join(', ')}) = ${state.answerKey.expression}</span>
+          </div>
         `;
-        refRow.appendChild(exCard);
+        body.appendChild(banner);
       }
 
       // Verify field row.
@@ -2725,7 +2720,7 @@
 
         if (!firstDodge) {
           firstDodge = true;
-          if (giveUpWrap && giveUpText) {
+          if (giveUpWrap) {
             revealTimer = setTimeout(() => {
               giveUpWrap.classList.remove('is-hidden');
               giveUpWrap.classList.add('is-revealing');
