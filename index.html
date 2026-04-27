@@ -852,6 +852,24 @@
     table.truthTable.read-only td.f:hover {
       background: #fff;
     }
+
+    /* Cell pop animation — fires when a cell value cycles, so only that cell
+       reacts (not a full table re-render). */
+    @keyframes cellPop {
+      0%   { transform: scale(1); }
+      40%  { transform: scale(0.85); }
+      100% { transform: scale(1); }
+    }
+    .kmap-cell.cell-pop {
+      animation: cellPop 0.2s ease-out;
+    }
+    @keyframes cellFlash {
+      0%   { background: var(--accent-soft); }
+      100% { background: transparent; }
+    }
+    table.truthTable td.f.cell-pop {
+      animation: cellFlash 0.32s ease-out;
+    }
     button.secondary-btn {
       background: var(--surface);
       border: 1px solid var(--border-strong);
@@ -1537,10 +1555,6 @@
       wirePathHandlers();
       document.getElementById('buildKmapBtn').addEventListener('click', () => {
         if (state.startingPoint === 'expression' && (!state.answerKey || !state.truthTableVerified)) return;
-        // Capture the truth table's current position so Step 3 can FLIP-animate it
-        // into its new home on the right of the K-map (no fade — it just flows).
-        const tableEl = document.querySelector('#step2Body table.truthTable');
-        if (tableEl) state._flowFromStep2 = { tableRect: tableEl.getBoundingClientRect() };
         state.kmapBuilt = true;
         state.step = 3;
         state.kmapDraft = Array(1 << state.n).fill(null);
@@ -1550,11 +1564,38 @@
 
     function cycleF(m) {
       const cur = state.values[m];
-      state.values[m] = cur === 0 ? 1 : cur === 1 ? 'X' : 0;
+      const next = cur === 0 ? 1 : cur === 1 ? 'X' : 0;
+      state.values[m] = next;
       state.solverGroups = [];
-      state.truthTableVerified = false;  // any edit invalidates the verified state
+      state.truthTableVerified = false;
       cascadeChange(2);
-      renderAll();
+
+      const cell = document.querySelector(`#step2Body td.f[data-minterm="${m}"]`);
+      if (cell) {
+        cell.classList.remove('wrong');
+        cell.classList.toggle('x', next === 'X');
+        cell.textContent = String(next);
+        cell.classList.remove('cell-pop');
+        void cell.offsetWidth;
+        cell.classList.add('cell-pop');
+      }
+
+      // Continue button state on Step 2.
+      const cont = document.getElementById('buildKmapBtn');
+      if (cont) {
+        const locked = state.startingPoint === 'expression' && (!state.answerKey || !state.truthTableVerified);
+        cont.disabled = locked;
+        if (locked) {
+          cont.title = state.answerKey
+            ? 'Click Check truth table first — Continue unlocks once all rows match.'
+            : 'Type an expression (or click 🎲 Random function) and verify the truth table first.';
+        } else {
+          cont.removeAttribute('title');
+        }
+      }
+      // Clear any stale check feedback.
+      const result = document.getElementById('checkTtResult');
+      if (result) result.innerHTML = '';
     }
 
     function renderAll() {
@@ -2407,13 +2448,37 @@
 
     function cycleEditCell(m) {
       const cur = state.kmapDraft[m];
-      if (cur === null) state.kmapDraft[m] = 0;
-      else if (cur === 0) state.kmapDraft[m] = 1;
-      else if (cur === 1) state.kmapDraft[m] = 'X';
-      else state.kmapDraft[m] = 0;
-      state.kmapVerified = false;  // any edit invalidates the verified state
+      let next;
+      if (cur === null) next = 0;
+      else if (cur === 0) next = 1;
+      else if (cur === 1) next = 'X';
+      else next = 0;
+      state.kmapDraft[m] = next;
+      state.kmapVerified = false;
+      // Cascade clears downstream state but DON'T full re-render — just update this cell.
       cascadeChange(3);
-      renderAll();
+
+      const cell = document.querySelector(`#step3Body .kmap-cell[data-minterm="${m}"]`);
+      if (cell) {
+        cell.classList.remove('wrong');
+        cell.classList.toggle('x', next === 'X');
+        cell.innerHTML = `<span class="mint">${m}</span>${next}`;
+        // Restart the cell pop animation.
+        cell.classList.remove('cell-pop');
+        void cell.offsetWidth;
+        cell.classList.add('cell-pop');
+      }
+
+      // Update Continue button state.
+      const cont = document.getElementById('continueGroupingBtn');
+      if (cont) {
+        cont.disabled = !state.kmapVerified;
+        if (state.kmapVerified) cont.removeAttribute('title');
+        else cont.title = 'Click Check K-map first — Continue unlocks once all cells match.';
+      }
+      // Clear any stale check feedback.
+      const result = document.getElementById('checkKmapResult');
+      if (result) result.innerHTML = '';
     }
 
     function toggleGroupCell(m) {
@@ -2494,34 +2559,6 @@
       kmapSection.appendChild(kmapLabel);
       kmapSection.appendChild(buildKmapElement('edit'));
       content.appendChild(kmapSection);
-
-      // FLIP animation: if we just arrived from Step 2, fly the truth table from
-      // its old position to its new position (no fade — it flows).
-      if (state._flowFromStep2 && state._flowFromStep2.tableRect) {
-        const oldRect = state._flowFromStep2.tableRect;
-        state._flowFromStep2 = null;
-        // Step 3 isn't visible yet (fade-in starts at ~220ms after click). Schedule the
-        // FLIP measurement+animation to fire when Step 3 becomes visible.
-        setTimeout(() => {
-          const newTable = document.querySelector('#step3Body table.truthTable');
-          if (!newTable) return;
-          const newRect = newTable.getBoundingClientRect();
-          const dx = oldRect.left - newRect.left;
-          const dy = oldRect.top - newRect.top;
-          // Place at old position, then animate to identity.
-          newTable.style.transition = 'none';
-          newTable.style.transform = `translate(${dx}px, ${dy}px)`;
-          newTable.offsetHeight; // force reflow
-          requestAnimationFrame(() => {
-            newTable.style.transition = 'transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)';
-            newTable.style.transform = '';
-            setTimeout(() => {
-              newTable.style.transition = '';
-              newTable.style.transform = '';
-            }, 700);
-          });
-        }, 230);
-      }
 
       // Tools / fallback / advance.
       const continueLocked = !state.kmapVerified;
