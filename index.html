@@ -750,7 +750,7 @@
       pointer-events: none;
     }
 
-    /* Step 2 secondary fallback row (Fill F from expression below Check). */
+    /* Step 2/3 secondary fallback row. */
     .step-tools-fallback {
       display: flex;
       align-items: center;
@@ -759,6 +759,47 @@
       margin-top: 14px;
       padding-top: 14px;
       border-top: 1px dashed var(--border);
+    }
+    .step-tools-fallback + .step-tools-fallback {
+      border-top: none;
+      margin-top: 6px;
+      padding-top: 0;
+    }
+
+    /* === Step 3 K-map workbench (truth table + K-map side by side) === */
+    .kmap-workbench {
+      display: flex;
+      gap: 28px;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      margin: 18px 0 22px;
+    }
+    .workbench-section {
+      flex-shrink: 0;
+      animation: workbenchFloatIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .workbench-section h4 {
+      margin: 0 0 10px;
+    }
+    .workbench-truthtable {
+      animation-delay: 0.08s;
+    }
+    .workbench-kmap {
+      animation-delay: 0.22s;
+      flex: 1 1 auto;
+      min-width: 280px;
+    }
+    @keyframes workbenchFloatIn {
+      0%   { opacity: 0; transform: translateY(24px) scale(0.97); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Read-only truth table (Step 3 reference): no hover, no pointer. */
+    table.truthTable.read-only td.f {
+      cursor: default;
+    }
+    table.truthTable.read-only td.f:hover {
+      background: #fff;
     }
     button.secondary-btn {
       background: var(--surface);
@@ -1040,6 +1081,7 @@
       if (fromStep < 3) {
         state.kmapDraft = null;
         state.kmapBuilt = false;
+        state.kmapVerified = false;
       }
       if (fromStep < 4) {
         state.solverGroups = [];
@@ -1302,6 +1344,7 @@
       n: null, varNames: [], values: [], step: 1, maxStep: 1, kmapBuilt: false,
       answerKey: null, solveMode: null, solverGroups: [], manualGroups: [],
       truthTableVerified: false,
+      kmapVerified: false,
       startingPoint: 'expression',  // Step 2 segmented control: 'expression' | 'truthtable'
       pendingSelection: new Set(),
       kmapDraft: null,  // null until Step 3 begins; then Array(2^n) of (0|1|'X'|null) for "Check K-map"
@@ -1336,9 +1379,10 @@
       body.prepend(banner);
     }
 
-    function buildTruthTable() {
+    function buildTruthTable(opts = {}) {
+      const readOnly = !!opts.readOnly;
       const tbl = document.createElement('table');
-      tbl.className = 'truthTable';
+      tbl.className = 'truthTable' + (readOnly ? ' read-only' : '');
       const thead = document.createElement('thead');
       const headRow = document.createElement('tr');
       for (const name of state.varNames) {
@@ -1364,7 +1408,7 @@
         fTd.dataset.minterm = m;
         fTd.textContent = state.values[m];
         if (state.values[m] === 'X') fTd.classList.add('x');
-        fTd.addEventListener('click', () => cycleF(m));
+        if (!readOnly) fTd.addEventListener('click', () => cycleF(m));
         tr.appendChild(fTd);
         tbody.appendChild(tr);
       }
@@ -2305,6 +2349,7 @@
       else if (cur === 0) state.kmapDraft[m] = 1;
       else if (cur === 1) state.kmapDraft[m] = 'X';
       else state.kmapDraft[m] = 0;
+      state.kmapVerified = false;  // any edit invalidates the verified state
       cascadeChange(3);
       renderAll();
     }
@@ -2322,20 +2367,25 @@
       body.innerHTML = '';
       renderExprBanner('step3Body');
 
+      // General step note.
+      const note = document.createElement('p');
+      note.className = 'step-note';
+      note.textContent = "Build the K-map from the truth table. Click each cell to cycle 0 → 1 → X. The truth table on the left is your reference.";
+      body.appendChild(note);
+
+      // Layout selector — restyled to match the field-row pattern.
       if (state.n >= 2) {
         const layouts = enumerateLayouts(state.n);
         const sel = document.createElement('div');
-        sel.style.cssText = 'margin-bottom: 12px; font-size: 14px;';
+        sel.className = 'field-row';
         sel.innerHTML = `
-          <label>K-map layout:
-            <select id="layoutSelect">
-              ${layouts.map(l => `<option value="${l.rowVars.join(',')}|${l.colVars.join(',')}">${formatLayout(l, state.varNames)}</option>`).join('')}
-            </select>
-          </label>
-          <span style="color: #888; margin-left: 8px;">— changes how variables are arranged on rows vs columns</span>
+          <label class="field-label" for="layoutSelect">K-map layout</label>
+          <select id="layoutSelect">
+            ${layouts.map(l => `<option value="${l.rowVars.join(',')}|${l.colVars.join(',')}">${formatLayout(l, state.varNames)}</option>`).join('')}
+          </select>
+          <span class="row-hint">Changes how variables are arranged on rows vs columns.</span>
         `;
         body.appendChild(sel);
-        // Set the current selection
         const cur = `${state.kmapLayout.rowVars.join(',')}|${state.kmapLayout.colVars.join(',')}`;
         document.getElementById('layoutSelect').value = cur;
         document.getElementById('layoutSelect').addEventListener('change', e => {
@@ -2343,8 +2393,6 @@
           const rowVars = rStr ? rStr.split(',').map(Number) : [];
           const colVars = cStr.split(',').map(Number);
           state.kmapLayout = { rowVars, colVars };
-          // Layout change preserves data (state.kmapDraft is minterm-indexed). Just re-render.
-          // But manual groups' rects need to be recomputed under the new layout.
           state.solverGroups = state.solverGroups.map(g => ({
             ...g,
             rects: KMapCore.groupRects(g.minterms, state.n, state.kmapLayout),
@@ -2353,29 +2401,66 @@
             ...g,
             rects: KMapCore.groupRects(g.minterms, state.n, state.kmapLayout),
           }));
-          cascadeChange(3); // any later step needs to reflect the new layout
+          cascadeChange(3);
           renderAll();
         });
       }
 
-      const wrap = buildKmapElement('edit');
-      body.appendChild(wrap);
+      // Side-by-side workbench: read-only truth table (reference) + interactive K-map.
+      const workbench = document.createElement('div');
+      workbench.className = 'kmap-workbench';
 
-      const ctrls = document.createElement('div'); ctrls.style.marginTop = '8px';
+      const tableSection = document.createElement('div');
+      tableSection.className = 'workbench-section workbench-truthtable';
+      const tableLabel = document.createElement('h4');
+      tableLabel.textContent = 'Truth table (reference)';
+      tableSection.appendChild(tableLabel);
+      tableSection.appendChild(buildTruthTable({ readOnly: true }));
+
+      const kmapSection = document.createElement('div');
+      kmapSection.className = 'workbench-section workbench-kmap';
+      const kmapLabel = document.createElement('h4');
+      kmapLabel.textContent = 'K-map';
+      kmapSection.appendChild(kmapLabel);
+      kmapSection.appendChild(buildKmapElement('edit'));
+
+      workbench.appendChild(tableSection);
+      workbench.appendChild(kmapSection);
+      body.appendChild(workbench);
+
+      // Tools / fallback / advance.
+      const continueLocked = !state.kmapVerified;
+      const continueTitle = continueLocked
+        ? 'Click Check K-map first — Continue unlocks once all cells match.'
+        : '';
+      const ctrls = document.createElement('div');
       ctrls.innerHTML = `
-        <button id="autoFillKmapBtn">Auto-fill from truth table</button>
-        <button id="clearKmapBtn">Clear K-map</button>
-        <button id="checkKmapBtn">Check K-map</button>
-        <span id="checkKmapResult" style="margin-left: 12px; font-size: 13px;"></span>
-        <button id="continueGroupingBtn" style="margin-left: 24px;">Continue to grouping →</button>
+        <div class="step-tools">
+          <div class="step-tools-row">
+            <button id="checkKmapBtn" type="button">Check K-map</button>
+          </div>
+          <div id="checkKmapResult" class="tool-result"></div>
+          <div class="step-tools-fallback">
+            <button id="autoFillKmapBtn" type="button" class="secondary-btn">⤓ Auto-fill from truth table</button>
+            <span class="row-hint">Skip the manual transfer — fills the K-map directly from the truth table.</span>
+          </div>
+          <div class="step-tools-fallback">
+            <button id="clearKmapBtn" type="button" class="secondary-btn">↺ Clear K-map</button>
+            <span class="row-hint">Wipe every cell and start over.</span>
+          </div>
+        </div>
+        <div class="step-advance">
+          <button id="continueGroupingBtn" type="button" ${continueLocked ? 'disabled' : ''}${continueLocked ? ` title="${continueTitle}"` : ''}>Continue →</button>
+        </div>
       `;
       body.appendChild(ctrls);
+
       document.getElementById('autoFillKmapBtn').addEventListener('click', autoFillKmap);
       document.getElementById('clearKmapBtn').addEventListener('click', clearKmapCells);
       document.getElementById('checkKmapBtn').addEventListener('click', checkKmap);
       document.getElementById('continueGroupingBtn').addEventListener('click', () => {
+        if (!state.kmapVerified) return;
         state.step = 4;
-        document.getElementById('step4').classList.remove('disabled');
         renderAll();
       });
     }
@@ -2423,6 +2508,7 @@
     function autoFillKmap() {
       for (let m = 0; m < state.values.length; m++) state.kmapDraft[m] = state.values[m];
       state.solverGroups = [];
+      state.kmapVerified = true;  // auto-fill matches by definition
       cascadeChange(3);
       renderAll();
     }
@@ -2437,8 +2523,20 @@
         cell.classList.toggle('wrong', !ok);
         if (ok) pass++; else { wrong.push(m); cell.title = `expected ${expected}`; }
       });
-      document.getElementById('checkKmapResult').textContent =
-        `${pass} / ${state.values.length} correct` + (wrong.length ? ` — wrong: m=${wrong.join(',')}` : '');
+      state.kmapVerified = (wrong.length === 0);
+      const result = document.getElementById('checkKmapResult');
+      const total = state.values.length;
+      if (wrong.length === 0) {
+        result.innerHTML = `<span style="color: var(--success); font-weight: 600;">✓ All ${total} cells correct — Continue is unlocked.</span>`;
+      } else {
+        result.innerHTML = `<span style="color: var(--error);">${pass} / ${total} correct — wrong cells: m=${wrong.join(', ')}</span>`;
+      }
+      const cont = document.getElementById('continueGroupingBtn');
+      if (cont) {
+        cont.disabled = !state.kmapVerified;
+        if (state.kmapVerified) cont.removeAttribute('title');
+        else cont.title = 'Click Check K-map first — Continue unlocks once all cells match.';
+      }
     }
 
     function autoFillFromExpression() {
