@@ -801,6 +801,36 @@
       background: transparent;
     }
 
+    /* === Colored expression banner (above K-map after solutionVerified) === */
+    .kmap-expr-banner {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      padding: 8px 14px;
+      margin: 0 0 10px;
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+      font-family: var(--font-mono);
+      font-size: 18px;
+      font-weight: 500;
+      letter-spacing: 0;
+      max-width: 100%;
+      flex-wrap: wrap;
+    }
+    .kmap-expr-banner .kmap-expr-lead {
+      color: var(--text);
+      margin-right: 2px;
+    }
+    .kmap-expr-banner .kmap-expr-term {
+      font-weight: 700;
+    }
+    .kmap-expr-banner .kmap-expr-sep {
+      color: var(--text-3);
+      padding: 0 2px;
+    }
+
     /* === Group rectangles (the visual handshake) === */
     .kmap-overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
     .kmap-overlay .rect {
@@ -815,26 +845,8 @@
       border-width: 4.5px;
       transform: scale(1.015);
     }
-    .kmap-overlay .rect-label {
-      position: absolute;
-      background: #fff;
-      padding: 1px 6px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 700;
-      border-radius: 4px;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-      border: 1.5px solid currentColor;
-      line-height: 1.5;
-      z-index: 1;
-    }
-    /* Mid-edge label positions — symmetric on the rect outline. Staggered
-       across the four edges by group index so adjacent groups don't overlap. */
-    .kmap-overlay .rect-label.label-tc { top: -11px;    left: 50%; transform: translateX(-50%); }
-    .kmap-overlay .rect-label.label-bc { bottom: -11px; left: 50%; transform: translateX(-50%); }
-    .kmap-overlay .rect-label.label-lc { left: 0;       top: 50%;  transform: translate(-50%, -50%); }
-    .kmap-overlay .rect-label.label-rc { right: 0;      top: 50%;  transform: translate(50%, -50%); }
+    /* (Inline rect labels were replaced by the kmap-expr-banner above the
+       K-map — see updateColoredExpressionBanner.) */
 
     /* === Pending / dragging === */
     .kmap-cell.pending {
@@ -3235,10 +3247,56 @@
       updateContinueVerifyButton();
     }
 
-    function renderOverlays(opts) {
-      // Back-compat: a bare `true` argument still means "force labels".
-      const forceLabels = (typeof opts === 'boolean') ? opts : !!(opts && opts.forceLabels);
-      const hideLabels  = (typeof opts === 'object' && opts) ? !!opts.hideLabels : false;
+    // Build an HTML element containing the verified solution expression with
+    // each term colored to match its group rectangle. Used above the K-map
+    // in Step 4 + Step 5 once state.solutionVerified is true.
+    function buildColoredExpressionElement() {
+      const groups = [...state.solverGroups, ...state.manualGroups];
+      if (groups.length === 0) return null;
+      const isPOS = state.solveMode === 'POS';
+      const separator = isPOS ? ' · ' : ' + ';
+      const banner = document.createElement('div');
+      banner.className = 'kmap-expr-banner';
+      const lead = document.createElement('span');
+      lead.className = 'kmap-expr-lead';
+      lead.textContent = `F(${state.varNames.join(',')}) = `;
+      banner.appendChild(lead);
+      groups.forEach((g, i) => {
+        if (i > 0) {
+          const sep = document.createElement('span');
+          sep.className = 'kmap-expr-sep';
+          sep.textContent = separator;
+          banner.appendChild(sep);
+        }
+        const term = document.createElement('span');
+        term.className = 'kmap-expr-term';
+        term.style.color = g.color;
+        term.textContent = g.term;
+        banner.appendChild(term);
+      });
+      return banner;
+    }
+
+    // Mount/unmount the colored expression banner above each K-map container.
+    // Mounted iff state.solutionVerified. Idempotent — safe to call any time.
+    function updateColoredExpressionBanner() {
+      ['#step4KmapContainer', '#step5KmapContainer'].forEach(sel => {
+        const container = document.querySelector(sel);
+        if (!container) return;
+        // Remove any existing banner first.
+        const old = container.querySelector(':scope > .kmap-expr-banner');
+        if (old) old.remove();
+        if (state.solutionVerified) {
+          const banner = buildColoredExpressionElement();
+          if (banner) container.insertBefore(banner, container.firstChild);
+        }
+      });
+    }
+
+    function renderOverlays(_unusedOpts) {
+      // Inline term labels were removed in favor of a colored expression banner
+      // rendered above the K-map (see updateColoredExpressionBanner). The
+      // overlays themselves are pure colored rectangles now — no on-map text.
       // Render group overlays into every K-map container that has a .kmap-overlay
       // (Step 4's interactive K-map and Step 5's view-only reference K-map).
       const all = [...state.solverGroups, ...state.manualGroups];
@@ -3279,17 +3337,6 @@
             div.style.borderColor = g.color;
             div.style.backgroundColor = withAlpha(g.color, 0.18);
             div.title = g.term;
-            if (ri === 0 && !hideLabels && (state.solutionVerified || forceLabels)) {
-              const label = document.createElement('span');
-              // Mid-edge positions: top-center, right-center, bottom-center, left-center.
-              // Symmetric on the rect outline; staggered by group index so adjacent
-              // groups don't collide on the same edge.
-              const positions = ['label-tc', 'label-rc', 'label-bc', 'label-lc'];
-              label.className = 'rect-label ' + positions[gi % positions.length];
-              label.style.color = g.color;
-              label.textContent = g.term;
-              div.appendChild(label);
-            }
             overlay.appendChild(div);
           });
         });
@@ -3569,8 +3616,9 @@
       });
       document.getElementById('revealAnswerBtn').addEventListener('click', openRevealPrank);
 
-      // Render group overlays into the new view K-map.
+      // Render group overlays + colored expression banner above the K-map.
       renderOverlays();
+      updateColoredExpressionBanner();
 
       // Restore prior visual state if already verified.
       if (state.solutionVerified) {
@@ -3884,6 +3932,7 @@
       }
       renderOverlays();
       renderManualGroupList();
+      updateColoredExpressionBanner();
       showCheatCelebration();
     }
 
@@ -4064,6 +4113,7 @@
       document.getElementById('continueExportBtn').disabled = false;
       renderOverlays();
       renderManualGroupList();
+      updateColoredExpressionBanner();
       showSuccessCelebration();
     }
 
@@ -4171,22 +4221,10 @@
       });
     }
 
-    // K-map snapshot WITH inline labels — used by the composite PDF flow.
-    async function snapshotKmap() {
-      if (typeof window.html2canvas !== 'function') throw new Error('Export libs failed to load — check your internet connection.');
-      const sourceStepId = document.querySelector('#step4KmapContainer .kmap') ? 'step4' : 'step3';
-      return withStepVisible(sourceStepId, async () => {
-        let km = document.querySelector('#step4KmapContainer .kmap');
-        if (!km) km = document.querySelector('#step3Body .kmap');
-        if (!km) throw new Error('K-map not built yet.');
-        renderOverlays({ forceLabels: true });
-        try {
-          return await window.html2canvas(km, { scale: 2, backgroundColor: '#ffffff' });
-        } finally {
-          renderOverlays();
-        }
-      });
-    }
+    // Alias — labels were dropped entirely in favor of the colored expression
+    // banner above the K-map, so any caller previously asking for the labeled
+    // variant just gets the same output.
+    const snapshotKmap = snapshotKmapNoLabels;
 
     async function downloadTruthTablePng() {
       const errEl = document.getElementById('exportErr');
@@ -4305,18 +4343,24 @@
         if (!window.jspdf) throw new Error('Export libs failed to load — check your internet connection.');
         const tt = await snapshotTruthTable();
         const km = await snapshotKmap();
-        const expr = state.verifiedExpression || state.solverExpression || '?';
-        const title = `F(${state.varNames.join(',')}) = ${expr}`;
+        // Colored expression banner (same generator as the K-map-with-solution
+        // PNG). Sits above the K-map column on the right; if no groups exist
+        // we fall back to a plain black title at the top of the page.
+        const expr = buildColoredExpressionCanvas();
 
         const scale = 2; // matches html2canvas scale
         const padding = 30 * scale;
-        const titleSize = 28 * scale;
-        const titleHeight = titleSize * 1.6;
         const gap = 40 * scale;
+        const exprGap = 12 * scale;
+        const exprH = expr ? expr.height + exprGap : 0;
 
-        const contentW = tt.width + gap + km.width;
+        // Layout: truth table on the left, (colored expression + K-map) on the right.
+        // No top title banner — the colored expression replaces it.
+        const rightW = Math.max(km.width, expr ? expr.width : 0);
+        const rightH = exprH + km.height;
+        const contentW = tt.width + gap + rightW;
         const w = padding * 2 + contentW;
-        const h = padding * 2 + titleHeight + Math.max(tt.height, km.height);
+        const h = padding * 2 + Math.max(tt.height, rightH);
 
         const composite = document.createElement('canvas');
         composite.width = w;
@@ -4324,13 +4368,16 @@
         const ctx = composite.getContext('2d');
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, w, h);
-        ctx.fillStyle = '#000';
-        ctx.font = `bold ${titleSize}px ui-monospace, "SF Mono", "Cascadia Mono", monospace`;
-        ctx.textBaseline = 'top';
-        ctx.fillText(title, padding, padding);
-        const contentTop = padding + titleHeight;
-        ctx.drawImage(tt, padding, contentTop);
-        ctx.drawImage(km, padding + tt.width + gap, contentTop);
+        // Truth table on the left.
+        ctx.drawImage(tt, padding, padding);
+        // Right column: optional colored expression, then K-map.
+        const rightX = padding + tt.width + gap;
+        let rightY = padding;
+        if (expr) {
+          ctx.drawImage(expr, rightX + (rightW - expr.width) / 2, rightY);
+          rightY += expr.height + exprGap;
+        }
+        ctx.drawImage(km, rightX + (rightW - km.width) / 2, rightY);
 
         const img = composite.toDataURL('image/png');
         const { jsPDF } = window.jspdf;
@@ -4702,6 +4749,9 @@
       container.innerHTML = '';
       const wrap = buildKmapElement('group');
       container.appendChild(wrap);
+      // Mount the colored expression banner above the K-map if the user has
+      // already verified their solution in Step 5 (state.solutionVerified).
+      updateColoredExpressionBanner();
     }
 
     function updatePendingHighlight() {
